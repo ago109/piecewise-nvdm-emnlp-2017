@@ -95,7 +95,7 @@ object Train {
         val x = batch._1.asInstanceOf[Mat]
         val y = batch._2.asInstanceOf[Mat]
         //Evaluate model on x using y as the target
-
+        println("------------------------------")
         println("X:\n"+ScalaDebugUtils.printFullMat(x))
         println("Y:\n"+ScalaDebugUtils.printFullMat(y))
 

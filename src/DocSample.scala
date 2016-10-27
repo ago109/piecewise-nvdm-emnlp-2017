@@ -34,7 +34,7 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     * @param idx_val_map
     * @param applyTransform -> apply log(1 + TF) transform to values?
     */
-  def buildFrom(idx_val_map : HashMap[Integer,Float], applyTransform : Boolean = true): Unit ={
+  def buildFrom(idx_val_map : HashMap[Integer,java.lang.Float], applyTransform : Boolean = true): Unit ={
     this.bagOfIdx = new Array[Int](idx_val_map.size())
     this.bagOfVals = new Array[Float](idx_val_map.size())
     val iter = (idx_val_map.keySet()).iterator()

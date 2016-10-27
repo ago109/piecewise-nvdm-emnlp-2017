@@ -39,8 +39,8 @@ object StreamToSamples {
     val seed = args(1).toInt
     val rng = new Random(seed)
     val tokenType = args(2)
-    val ftrain = args(3)
-    val fdict = args(4)
+    val fdict = args(3)
+    val ftrain = args(4)
     var fvalid:String = null
     var numDocsInSubset:Int = 0
     if(args.length > 5){
@@ -57,28 +57,28 @@ object StreamToSamples {
     tmpStream.lowerCaseDocs(false)
     var idx = 0
     var doc: Doc = tmpStream.nextDoc()
-    while (!tmpStream.atEndOfStream()) {
-      doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
-      val idx_val_map = new HashMap[Integer,Float]()
+    while (!tmpStream.atEndOfStream() || doc != null) {
+      val idx_val_map = new HashMap[Integer,java.lang.Float]()
       while(doc.atEOF() == false){
         val symb = doc.getCurrentSymbol()
-        val idx = dict.getIndex(symb)
-        if(idx != null){
-          var currVal = idx_val_map.get(idx)
+        val symb_idx = dict.getIndex(symb)
+        if(symb_idx != null){
+          var currVal = idx_val_map.get(symb_idx)
           if(currVal != null){
-            currVal += 1
-            idx_val_map.put(idx,currVal)
+            currVal += 1f
+            idx_val_map.put(symb_idx,currVal)
           }else{
-            idx_val_map.put(idx,1)
+            idx_val_map.put(symb_idx,1f)
           }
         }
         doc.advanceSymbolPtr()
       }
-      val sample = new DocSample(dict.getLexiconSize(),idx)
+      val sample = new DocSample(idx,dict.getLexiconSize())
       samples.add(sample)
       sample.buildFrom(idx_val_map, applyTransform = true)
       idx += 1
-      print("\r " + idx + " docs converted to bag-of-words...")
+      print("\r " + samples.size() + " docs converted to bag-of-words...")
+      doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
     }
     println()
 

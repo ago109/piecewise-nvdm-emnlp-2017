@@ -9,6 +9,7 @@ import YADLL.Utils.MiscUtils
 import YAVL.Data.Text.Doc
 import YAVL.Data.Text.Lexicon.Lexicon
 import YAVL.DataStreams.Text.DocStream
+import YAVL.Utils.ScalaDebugUtils
 
 /**
   * Transforms a corpus into an array of DocSamples to be sampled (w/o replacement) from.
@@ -30,7 +31,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       var tok = line.replaceAll(" ","").split("\t")
       val doc_id = tok(0).toInt
       tok = tok(1).split(",")
-      val idx_val_map = new HashMap[Integer,Float]()
+      val idx_val_map = new HashMap[Integer,java.lang.Float]()
       var i = 0
       while(i < tok.length){
         val sub_tok = tok(i).split(":")
@@ -60,30 +61,30 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     tmpStream.lowerCaseDocs(false)
     var idx = 0
     var doc: Doc = tmpStream.nextDoc()
-    while (!tmpStream.atEndOfStream()) {
-      doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
-      val idx_val_map = new HashMap[Integer, Float]()
+    while (!tmpStream.atEndOfStream() || doc != null) {
+      val idx_val_map = new HashMap[Integer, java.lang.Float]()
       while (doc.atEOF() == false) {
         val symb = doc.getCurrentSymbol()
         val idx = dict.getIndex(symb)
         if (idx != null) {
           var currVal = idx_val_map.get(idx)
           if (currVal != null) {
-            currVal += 1
+            currVal += 1f
             idx_val_map.put(idx, currVal)
           } else {
-            idx_val_map.put(idx, 1)
+            idx_val_map.put(idx, 1f)
           }
         }
         doc.advanceSymbolPtr()
       }
-      val sample = new DocSample(dict.getLexiconSize(), idx)
+      val sample = new DocSample(idx,dict.getLexiconSize())
       this.cache.add(sample)
       idx += 1
+      doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
     }
   }
 
-  def isDepleted(): Unit ={
+  def isDepleted(): Boolean ={
     if(this.cache.size() == 0){
       return true
     }
@@ -127,19 +128,19 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
         val samp = this.drawRandDocSample(rng)
         val x_i = samp._1.asInstanceOf[IMat]
         val x_v = samp._2.asInstanceOf[FMat]
-        val y_i = samp._2.asInstanceOf[Int]
+        val y_i = samp._3.asInstanceOf[Int]
         val y_v = 1f // y_i value is always a 1-hot encoding
         if(null != x_ind){
           x_ind = x_ind on x_i
           x_val = x_val on x_v
-          x_col = x_col on iones(x_ind.nrows,1) *@ col_ptr
+          x_col = x_col on iones(x_i.nrows,1) *@ col_ptr
           y_ind = y_ind on y_i
           y_val = y_val on y_v
           y_col = y_col on col_ptr
         }else{
           x_ind = x_i
           x_val = x_v
-          x_col = iones(x_ind.nrows,1) *@ col_ptr
+          x_col = iones(x_i.nrows,1) *@ col_ptr
           y_ind = y_i
           y_val = y_v
           y_col = col_ptr
