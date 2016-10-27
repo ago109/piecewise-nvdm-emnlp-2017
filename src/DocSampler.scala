@@ -148,6 +148,8 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
         col_ptr += 1
         mb_size += 1
       }
+      //println("x.ind: "+x_ind.t)
+      //println("y.ind: "+y_ind.t)
       //Now compose the mini-batch (x,y) with whatever we could scrape
       val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,mb_size)
       val y = sparse(IMat(y_ind),IMat(y_col),FMat(y_val),this.dim,mb_size)

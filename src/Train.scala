@@ -18,6 +18,7 @@ import YADLL.Utils.ConfigFile
   * Created by ago109 on 10/27/16.
   */
 object Train {
+  Mat.checkMKL //<-- needed in order to check for BIDMat on cpu or gpu...
 
   def buildDataChunks(rng : Random, sampler : DocSampler, blockSize : Int):ArrayList[(Mat,Mat)]={
     val chunks = new ArrayList[(Mat,Mat)]()
@@ -46,10 +47,9 @@ object Train {
     val dataFname = configFile.getArg("dataFname")
     val dictFname = configFile.getArg("dictFname")
     val dict = new Lexicon(dictFname)
-    val cacheSize = configFile.getArg("cacheSize").toInt
     val miniBatchSize = configFile.getArg("miniBatchSize").toInt
     //Build a sampler for main data-set
-    val sampler = new DocSampler(dataFname,dict,cacheSize)
+    val sampler = new DocSampler(dataFname,dict)
     sampler.loadDocsFromTSVToCache()
 
     val trainModel = configFile.getArg("trainModel").toBoolean
@@ -58,7 +58,7 @@ object Train {
       val validFname = configFile.getArg("validFname")
       val errorMark = configFile.getArg("errorMark").toInt
       //Build validation set to conduct evaluation
-      var validSampler = new DocSampler(validFname,dict,cacheSize)
+      var validSampler = new DocSampler(validFname,dict)
       val dataChunks = Train.buildDataChunks(rng,validSampler,miniBatchSize)
       validSampler = null //toss aside this sampler for garbage collection
 
@@ -95,9 +95,6 @@ object Train {
         val x = batch._1.asInstanceOf[Mat]
         val y = batch._2.asInstanceOf[Mat]
         //Evaluate model on x using y as the target
-        println("------------------------------")
-        println("X:\n"+ScalaDebugUtils.printFullMat(x))
-        println("Y:\n"+ScalaDebugUtils.printFullMat(y))
 
         //If model is variational, use its lower-bound to get probs
 
