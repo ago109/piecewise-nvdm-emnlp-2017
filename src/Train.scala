@@ -6,8 +6,9 @@ import java.util.Random
 import BIDMat.SciFunctions._
 import YADLL.FunctionGraph.Graph.OGraph
 import YADLL.FunctionGraph.Optimizers.{SGOpt, _}
+import YADLL.FunctionGraph.Theta
 import YAVL.Data.Text.Lexicon.Lexicon
-import YAVL.Utils.ScalaDebugUtils
+import YAVL.Utils.{Logger, ScalaDebugUtils}
 
 import scala.runtime.{RichInt, RichInt$}
 //Imports from BIDMat
@@ -146,19 +147,27 @@ object Train {
       }
       opt.norm_threshold = norm_rescale
 
+      val logger = new Logger(output_dir + graph.modelTypeName+"_stat.log")
+      logger.openLogger()
+      logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
+
       //Actualy train model
-      var bestNLL = 100000f
-      var bestPPL = 1000000f
+      var bestNLL = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+      var bestPPL = exp(bestNLL)
+      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL)
       var avg_update_time = 0f
       var mark = 1
       var epoch = 0
       while(epoch < numEpochs) {
+        if(epoch == (numEpochs-1)){
+          opt.setPolyakAverage()
+        }
         var numSampsSeen = 0 // # samples seen w/in an epoch
         var numIter = 0
         var currNLL:Mat = bestNLL
         var currPPL:Mat = bestPPL
         while (sampler.isDepleted() == false) {
-          var t0 = System.nanoTime()
+          val t0 = System.nanoTime()
           /* ####################################################
            * Gather & clamp data/samples to OGraph
            * ####################################################
@@ -205,26 +214,38 @@ object Train {
            */
           opt.update(theta = graph.theta, nabla = grad, miniBatchSize = numSamps)
 
-          var t1 = System.nanoTime()
+          val t1 = System.nanoTime()
           avg_update_time += (t1 - t0)
 
           if(numSampsSeen >= (mark * errorMark)){ //eval model @ this point
             currNLL = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+            //logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
             currPPL = exp(currNLL)
-            if(currNLL.dv.toFloat <= bestNLL){
-              bestNLL = currNLL.dv.toFloat
-              bestPPL = currPPL.dv.toFloat
+            if(currNLL.dv.toFloat <= bestNLL.dv.toFloat){
+              bestNLL = currNLL
+              bestPPL = currPPL
+              graph.theta.saveTheta(output_dir+"best_at_epoch_"+epoch)
             }
             mark += 1
             println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
           }
-          println("\r > NLL = "+currNLL + " PPL = " + bestPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
-
+          println("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
         }
         println()
+        //Checkpoint save current \Theta of model
+        graph.theta.saveTheta(output_dir+"check_epoch_"+epoch)
+
+        var polyak_avg:Theta = null
+        if(epoch == (numEpochs-1)){
+          println(" >> Estimating Polyak average over Theta...")
+          polyak_avg = opt.estimatePolyakAverage()
+          polyak_avg.saveTheta(output_dir+"polyak_avg")
+        }
+
         //Eval model after an epoch
-
-
+        currNLL = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+        currPPL = exp(currNLL)
+        println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL)
         epoch += 1
         sampler.reset()
       }
