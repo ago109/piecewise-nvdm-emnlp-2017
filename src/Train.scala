@@ -191,14 +191,14 @@ object Train {
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
 
       //Actualy train model
-      var avg_update_time = 0f
-      var mark = 1
       var epoch = 0
       while(epoch < numEpochs) {
         if(epoch == (numEpochs-1)){
           opt.setPolyakAverage()
         }
         var numSampsSeen = 0 // # samples seen w/in an epoch
+        var mark = 1
+        var avg_update_time = 0f
         var numIter = 0
         var currNLL:Mat = bestNLL
         var currPPL:Mat = bestPPL
