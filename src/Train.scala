@@ -100,15 +100,14 @@ object Train {
         val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
         log_probs = vlb //user vlb in place of intractable distribution
       }else{  //If model is NOT variational, use its decoder's posterior
-        log_probs = graph.getStat("L")
+        log_probs = graph.getStat("L") *@ numDocs
       }
       log_probs = log_probs / L_n //1/L_n * log P(X_n) for specific words in Doc_n
       doc_nll += sum(log_probs)
       graph.hardClear()
       i += 1
     }
-    doc_nll = -doc_nll / (1f * numDocs)
-    stats(0) = doc_nll
+    stats(0) = -doc_nll / (1f * numDocs)
     stats(1) = -loss_nll / (1f * numDocs)
     stats(2) = -KL_gauss_score / (1f * numDocs)
     stats(3) = -KL_piece_score  / (1f * numDocs)
@@ -131,6 +130,8 @@ object Train {
     val dict = new Lexicon(dictFname)
     val miniBatchSize = configFile.getArg("miniBatchSize").toInt
     val output_dir = configFile.getArg("output_dir")
+    val dir = new File(output_dir)
+    dir.mkdir() //<-- build dir on disk if it doesn't already exist...
     val trainModel = configFile.getArg("trainModel").toBoolean
 
     //Build a sampler for main data-set
@@ -278,7 +279,6 @@ object Train {
         epoch += 1
         sampler.reset()
       }
-
     }else{ //evaluation only
       val graphFname = configFile.getArg("graphFname")
       val dataChunks = Train.buildDataChunks(rng,sampler,miniBatchSize)
