@@ -70,7 +70,7 @@ object StreamToSamples {
           }else{
             idx_val_map.put(symb_idx,1f)
           }
-        }
+        }//else toss out symbols that do NOT occur in lexicon...
         doc.advanceSymbolPtr()
       }
       val sample = new DocSample(idx,dict.getLexiconSize())

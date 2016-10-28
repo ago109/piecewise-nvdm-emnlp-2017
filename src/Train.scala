@@ -184,6 +184,7 @@ object Train {
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
+      logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2))
 
       //Actualy train model
       var epoch = 0
@@ -259,6 +260,7 @@ object Train {
             }
             mark += 1
             println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
+            logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2))
           }
           println("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
           //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
@@ -283,6 +285,7 @@ object Train {
           bestNLL = currNLL
           bestPPL = currPPL
         }
+        logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2))
         println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
         epoch += 1
         sampler.reset()
