@@ -5,6 +5,7 @@ import java.util.Random
 
 import BIDMat.SciFunctions._
 import YADLL.FunctionGraph.Graph.OGraph
+import YADLL.FunctionGraph.Operators.SpecOps.KL_Gauss
 import YADLL.FunctionGraph.Optimizers.{SGOpt, _}
 import YADLL.FunctionGraph.Theta
 import YAVL.Data.Text.Lexicon.Lexicon
@@ -104,8 +105,8 @@ object Train {
       i += 1
     }
     stats(0) = -doc_nll / (1f * numDocs)
-    stats(1) = KL_gauss_score / (1f * numDocs)
-    stats(2) = KL_piece_score  / (1f * numDocs)
+    stats(1) = KL_gauss_score /// (1f * numDocs)
+    stats(2) = KL_piece_score  /// (1f * numDocs)
     return stats
   }
 
@@ -260,6 +261,8 @@ object Train {
             println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
           }
           println("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
+          //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
+          //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
         }
         println()
         //Checkpoint save current \Theta of model
