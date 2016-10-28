@@ -53,9 +53,11 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       val sample = new DocSample(doc_id,this.dim)
       sample.buildFrom(idx_val_map, applyTransform = false) ///DO NOT re-apply log-transform
       this.cache.add(sample)
+      print("\r " + this.cache.size() + " docs converted to bag-of-words...")
       line = fd.readLine()
     }
     fd.close()
+    println()
   }
 
 
@@ -83,9 +85,11 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       }
       val sample = new DocSample(idx,dict.getLexiconSize())
       this.cache.add(sample)
+      print("\r " + this.cache.size() + " docs converted to bag-of-words...")
       idx += 1
       doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
     }
+    println()
   }
 
   def isDepleted(): Boolean ={

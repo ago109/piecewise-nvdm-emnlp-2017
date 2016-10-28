@@ -133,6 +133,7 @@ object Train {
     val dir = new File(output_dir)
     dir.mkdir() //<-- build dir on disk if it doesn't already exist...
     val trainModel = configFile.getArg("trainModel").toBoolean
+    val graphFname = configFile.getArg("graphFname")
 
     //Build a sampler for main data-set
     val sampler = new DocSampler(dataFname,dict)
@@ -153,7 +154,7 @@ object Train {
 
       //Build Ograph given config
       val graph = archBuilder.autoBuildGraph()
-      graph.saveOGraph(output_dir+graph.modelTypeName)
+      graph.saveOGraph(output_dir+graphFname)
 
       //Build optimizer given config
       var opt:Opt = null
@@ -245,7 +246,7 @@ object Train {
           val t1 = System.nanoTime()
           avg_update_time += (t1 - t0)
 
-          if(numSampsSeen >= (mark * errorMark)){ //eval model @ this point
+          if(errorMark > 0 && numSampsSeen >= (mark * errorMark)){ //eval model @ this point
             stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
             currNLL = stats(0)
             //logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
@@ -280,7 +281,6 @@ object Train {
         sampler.reset()
       }
     }else{ //evaluation only
-      val graphFname = configFile.getArg("graphFname")
       val dataChunks = Train.buildDataChunks(rng,sampler,miniBatchSize)
       val N = sampler.numDocs()
       //Load graph given config
