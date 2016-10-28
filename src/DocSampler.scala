@@ -20,12 +20,13 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
   //val numLines = io.Source.fromFile(fname).getLines.size
   //Stores in RAM only so many doc-samples to prevent a memory-driven slow-down
   var cache = new ArrayList[DocSample]()
+  var totalNumDocs = -1
   var depletedSamps = new ArrayList[DocSample]()
   var dim = this.dict.getLexiconSize()
   //this.loadDocsFromStreamToCache()
 
   def numDocs():Int={
-    return cache.size()
+    return this.totalNumDocs
   }
 
   def loadDocsFromTSVToCache():Unit = {//assumes no header...
@@ -58,6 +59,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     }
     fd.close()
     println()
+    this.totalNumDocs = this.cache.size()
   }
 
 
@@ -90,6 +92,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
     }
     println()
+    this.totalNumDocs = this.cache.size()
   }
 
   def isDepleted(): Boolean ={

@@ -55,10 +55,11 @@ object Train {
       val x = batch._1.asInstanceOf[Mat]
       val y = batch._2.asInstanceOf[Mat]
       val L_n = sum((x > 0f),1) //get per-document lengths
+      val numSamps = x.ncols * 1f
 
       //Evaluate model on x using y as the target
       graph.clamp(("x-in",x))
-      graph.clamp(("x-out",y))
+      graph.clamp(("x-targ",y))
 
       //Generate random samples for model is needed
       if(graph.modelTypeName.contains("hybrid")){
@@ -69,7 +70,6 @@ object Train {
       }else if(graph.modelTypeName.contains("gaussian")){
         val eps_gauss:Mat = normrnd(0f,1f,archBuilder.n_hid,x.ncols)
         graph.clamp(("eps-gauss",eps_gauss))
-        graph.clamp(("x-out",y))
       }else if(graph.modelTypeName.contains("piece")){
         val eps_piece:Mat = rand(archBuilder.n_hid,x.ncols)
         graph.clamp(("eps-piece",eps_piece))
@@ -85,22 +85,22 @@ object Train {
           val KL_gauss = graph.getOp("KL-gauss").per_samp_result
           val KL_piece = graph.getOp("KL-piece").per_samp_result
           KL_term = KL_gauss + KL_piece
-          KL_gauss_score += graph.getStat("KL-gauss") *@ numDocs
-          KL_piece_score += graph.getStat("KL-piece") *@ numDocs
-          loss_nll += graph.getStat("NLL") *@ numDocs
+          KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
+          KL_piece_score += graph.getStat("KL-piece") *@ numSamps
+          loss_nll += graph.getStat("L") *@ numSamps
         }else if(graph.modelTypeName.contains("gaussian")){
           KL_term = graph.getOp("KL-gauss").per_samp_result
-          KL_gauss_score += graph.getStat("KL-gauss") *@ numDocs
-          loss_nll += graph.getStat("NLL") *@ numDocs
+          KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
+          loss_nll += graph.getStat("L") *@ numSamps
         }else if(graph.modelTypeName.contains("piece")){
           KL_term = graph.getOp("KL-piece").per_samp_result
-          KL_piece_score += graph.getStat("KL-piece") *@ numDocs
-          loss_nll += graph.getStat("NLL") *@ numDocs
+          KL_piece_score += graph.getStat("KL-piece") *@ numSamps
+          loss_nll += graph.getStat("L") *@ numSamps
         }
         val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
         log_probs = vlb //user vlb in place of intractable distribution
       }else{  //If model is NOT variational, use its decoder's posterior
-        log_probs = graph.getStat("L") *@ numDocs
+        log_probs = graph.getStat("L") *@ numSamps
       }
       log_probs = log_probs / L_n //1/L_n * log P(X_n) for specific words in Doc_n
       doc_nll += sum(log_probs)
@@ -109,8 +109,8 @@ object Train {
     }
     stats(0) = -doc_nll / (1f * numDocs)
     stats(1) = -loss_nll / (1f * numDocs)
-    stats(2) = -KL_gauss_score / (1f * numDocs)
-    stats(3) = -KL_piece_score  / (1f * numDocs)
+    stats(2) = KL_gauss_score / (1f * numDocs)
+    stats(3) = KL_piece_score  / (1f * numDocs)
     return stats
   }
 
@@ -129,8 +129,8 @@ object Train {
     val dictFname = configFile.getArg("dictFname")
     val dict = new Lexicon(dictFname)
     val miniBatchSize = configFile.getArg("miniBatchSize").toInt
-    val output_dir = configFile.getArg("output_dir")
-    val dir = new File(output_dir)
+    val outputDir = configFile.getArg("outputDir")
+    val dir = new File(outputDir)
     dir.mkdir() //<-- build dir on disk if it doesn't already exist...
     val trainModel = configFile.getArg("trainModel").toBoolean
     val graphFname = configFile.getArg("graphFname")
@@ -140,6 +140,8 @@ object Train {
     sampler.loadDocsFromTSVToCache()
 
     if(trainModel){ //train/fit model to data
+      archBuilder.readConfig(configFile)
+      archBuilder.n_in = dict.getLexiconSize() //input/output-dim is = to |V|
       val numEpochs = configFile.getArg("numEpochs").toInt
       val validFname = configFile.getArg("validFname")
       val errorMark = configFile.getArg("errorMark").toInt
@@ -148,17 +150,21 @@ object Train {
       var lr = configFile.getArg("lr").toFloat
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
-      val dataChunks = Train.buildDataChunks(rng,validSampler,miniBatchSize)
+      validSampler.loadDocsFromTSVToCache()
       val valid_N = validSampler.numDocs()
+      val dataChunks = Train.buildDataChunks(rng,validSampler,miniBatchSize)
       validSampler = null //toss aside this sampler for garbage collection
 
       //Build Ograph given config
       val graph = archBuilder.autoBuildGraph()
-      graph.saveOGraph(output_dir+graphFname)
+      graph.saveOGraph(outputDir+graphFname)
 
       //Build optimizer given config
       var opt:Opt = null
-      val climb_type = "descent"
+      var climb_type = "descent"
+      if(archBuilder.archType.contains("vae")){
+        climb_type = "ascent" //training a VAE requires gradient ascent!!
+      }
       if(optimizer.compareTo("rmsprop") == 0){
         opt = new RMSProp(lr=lr,opType=climb_type)
       }else if(optimizer.compareTo("adam") == 0){
@@ -174,14 +180,14 @@ object Train {
       }
       opt.norm_threshold = norm_rescale
 
-      val logger = new Logger(output_dir + graph.modelTypeName+"_stat.log")
+      val logger = new Logger(outputDir + graph.modelTypeName+"_stat.log")
       logger.openLogger()
       logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
 
       var stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
-      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL)
+      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " L = "+stats(1) + " KL.G = "+stats(2) + " KL.P = "+stats(3))
 
       //Actualy train model
       var avg_update_time = 0f
@@ -208,7 +214,7 @@ object Train {
           numSampsSeen += numSamps
           numIter += 1
           graph.clamp(("x-in",x))
-          graph.clamp(("x-out",y))
+          graph.clamp(("x-targ",y))
 
           //Generate random samples for model is needed
           if(graph.modelTypeName.contains("hybrid")){
@@ -219,7 +225,6 @@ object Train {
           }else if(graph.modelTypeName.contains("gaussian")){
             val eps_gauss:Mat = normrnd(0f,1f,archBuilder.n_hid,x.ncols)
             graph.clamp(("eps-gauss",eps_gauss))
-            graph.clamp(("x-out",y))
           }else if(graph.modelTypeName.contains("piece")){
             val eps_piece:Mat = rand(archBuilder.n_hid,x.ncols)
             graph.clamp(("eps-piece",eps_piece))
@@ -254,7 +259,7 @@ object Train {
             if(currNLL.dv.toFloat <= bestNLL.dv.toFloat){
               bestNLL = currNLL
               bestPPL = currPPL
-              graph.theta.saveTheta(output_dir+"best_at_epoch_"+epoch)
+              graph.theta.saveTheta(outputDir+"best_at_epoch_"+epoch)
             }
             mark += 1
             println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
@@ -263,26 +268,26 @@ object Train {
         }
         println()
         //Checkpoint save current \Theta of model
-        graph.theta.saveTheta(output_dir+"check_epoch_"+epoch)
+        graph.theta.saveTheta(outputDir+"check_epoch_"+epoch)
 
         var polyak_avg:Theta = null
         if(epoch == (numEpochs-1)){
           println(" >> Estimating Polyak average over Theta...")
           polyak_avg = opt.estimatePolyakAverage()
-          polyak_avg.saveTheta(output_dir+"polyak_avg")
+          polyak_avg.saveTheta(outputDir+"polyak_avg")
         }
 
         //Eval model after an epoch
         stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
         currNLL = stats(0)
         currPPL = exp(currNLL)
-        println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL)
+        println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL+ " L = "+stats(1) + " KL.G = "+stats(2) + " KL.P = "+stats(3))
         epoch += 1
         sampler.reset()
       }
     }else{ //evaluation only
-      val dataChunks = Train.buildDataChunks(rng,sampler,miniBatchSize)
       val N = sampler.numDocs()
+      val dataChunks = Train.buildDataChunks(rng,sampler,miniBatchSize)
       //Load graph given config
       val graph = archBuilder.loadOGraph(graphFname)
       graph.hardClear() //<-- clear out any gunked up data from previous sessions
