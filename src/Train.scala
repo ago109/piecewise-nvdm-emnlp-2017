@@ -44,9 +44,8 @@ object Train {
     */
   def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch, numDocs : Int,
                 dataChunks : ArrayList[(Mat,Mat)]):Array[Mat] ={
-    val stats =new Array[Mat](4)
+    val stats =new Array[Mat](3)
     var doc_nll:Mat = 0f
-    var loss_nll:Mat = 0f
     var KL_gauss_score:Mat = 0f
     var KL_piece_score:Mat = 0f
     var i = 0
@@ -87,15 +86,16 @@ object Train {
           KL_term = KL_gauss + KL_piece
           KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
           KL_piece_score += graph.getStat("KL-piece") *@ numSamps
-          loss_nll += graph.getStat("L") *@ numSamps
         }else if(graph.modelTypeName.contains("gaussian")){
           KL_term = graph.getOp("KL-gauss").per_samp_result
           KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
-          loss_nll += graph.getStat("L") *@ numSamps
+          println("Mu.Prior:\n"+graph.getStat("mu-prior"))
+          println("Mu.Post:\n"+graph.getStat("mu"))
+          println("Sigma.Prior:\n"+graph.getStat("sigma-prior"))
+          println("Sigma.Post:\n"+graph.getStat("sigma"))
         }else if(graph.modelTypeName.contains("piece")){
           KL_term = graph.getOp("KL-piece").per_samp_result
           KL_piece_score += graph.getStat("KL-piece") *@ numSamps
-          loss_nll += graph.getStat("L") *@ numSamps
         }
         val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
         log_probs = vlb //user vlb in place of intractable distribution
@@ -108,9 +108,8 @@ object Train {
       i += 1
     }
     stats(0) = -doc_nll / (1f * numDocs)
-    stats(1) = -loss_nll / (1f * numDocs)
-    stats(2) = KL_gauss_score / (1f * numDocs)
-    stats(3) = KL_piece_score  / (1f * numDocs)
+    stats(1) = KL_gauss_score / (1f * numDocs)
+    stats(2) = KL_piece_score  / (1f * numDocs)
     return stats
   }
 
@@ -187,7 +186,7 @@ object Train {
       var stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
-      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " L = "+stats(1) + " KL.G = "+stats(2) + " KL.P = "+stats(3))
+      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
 
       //Actualy train model
       var avg_update_time = 0f
@@ -281,7 +280,11 @@ object Train {
         stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
         currNLL = stats(0)
         currPPL = exp(currNLL)
-        println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL+ " L = "+stats(1) + " KL.G = "+stats(2) + " KL.P = "+stats(3))
+        if(currNLL.dv.toFloat <= bestNLL.dv.toFloat) {
+          bestNLL = currNLL
+          bestPPL = currPPL
+        }
+        println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
         epoch += 1
         sampler.reset()
       }
