@@ -89,12 +89,6 @@ object Train {
         }else if(graph.modelTypeName.contains("gaussian")){
           KL_term = graph.getOp("KL-gauss").per_samp_result
           KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
-          /*
-          println("Mu.Prior:\n"+graph.getStat("mu-prior"))
-          println("Mu.Post:\n"+graph.getStat("mu"))
-          println("Sigma.Prior:\n"+graph.getStat("sigma-prior"))
-          println("Sigma.Post:\n"+graph.getStat("sigma"))
-          */
         }else if(graph.modelTypeName.contains("piece")){
           KL_term = graph.getOp("KL-piece").per_samp_result
           KL_piece_score += graph.getStat("KL-piece") *@ numSamps
