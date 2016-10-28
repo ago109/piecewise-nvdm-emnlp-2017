@@ -33,8 +33,22 @@ object Train {
     return chunks
   }
 
-  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch, numDocs : Int, dataChunks : ArrayList[(Mat,Mat)]):Mat ={
-    var nll:Mat = 0f
+  /**
+    *
+    * @param rng
+    * @param graph
+    * @param archBuilder
+    * @param numDocs
+    * @param dataChunks
+    * @return (doc.nll, loss, KL-gaussian-score, KL-piecewise-score)
+    */
+  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch, numDocs : Int,
+                dataChunks : ArrayList[(Mat,Mat)]):Array[Mat] ={
+    val stats =new Array[Mat](4)
+    var doc_nll:Mat = 0f
+    var loss_nll:Mat = 0f
+    var KL_gauss_score:Mat = 0f
+    var KL_piece_score:Mat = 0f
     var i = 0
     while(i < dataChunks.size()){
       val batch = dataChunks.get(i)
@@ -65,29 +79,40 @@ object Train {
       graph.eval()
       var log_probs:Mat = null
       if(graph.modelTypeName.contains("vae")){ //If model is variational, use lower-bound to get probs
-      val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"),1) //P_\Theta
-      var KL_term:Mat = null
+        val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"),1) //P_\Theta
+        var KL_term:Mat = null
         if(graph.modelTypeName.contains("hybrid")){
           val KL_gauss = graph.getOp("KL-gauss").per_samp_result
           val KL_piece = graph.getOp("KL-piece").per_samp_result
           KL_term = KL_gauss + KL_piece
+          KL_gauss_score += graph.getStat("KL-gauss") *@ numDocs
+          KL_piece_score += graph.getStat("KL-piece") *@ numDocs
+          loss_nll += graph.getStat("NLL") *@ numDocs
         }else if(graph.modelTypeName.contains("gaussian")){
           KL_term = graph.getOp("KL-gauss").per_samp_result
+          KL_gauss_score += graph.getStat("KL-gauss") *@ numDocs
+          loss_nll += graph.getStat("NLL") *@ numDocs
         }else if(graph.modelTypeName.contains("piece")){
           KL_term = graph.getOp("KL-piece").per_samp_result
+          KL_piece_score += graph.getStat("KL-piece") *@ numDocs
+          loss_nll += graph.getStat("NLL") *@ numDocs
         }
         val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
         log_probs = vlb //user vlb in place of intractable distribution
       }else{  //If model is NOT variational, use its decoder's posterior
         log_probs = graph.getStat("L")
       }
-      log_probs = log_probs *@ L_n //1/L_n * log P(X_n) for specific words in Doc_n
-      nll += sum(log_probs)
+      log_probs = log_probs / L_n //1/L_n * log P(X_n) for specific words in Doc_n
+      doc_nll += sum(log_probs)
       graph.hardClear()
       i += 1
     }
-    nll = -nll / (1f * numDocs)
-    return nll
+    doc_nll = -doc_nll / (1f * numDocs)
+    stats(0) = doc_nll
+    stats(1) = -loss_nll / (1f * numDocs)
+    stats(2) = -KL_gauss_score / (1f * numDocs)
+    stats(3) = -KL_piece_score  / (1f * numDocs)
+    return stats
   }
 
   def main(args : Array[String]): Unit ={
@@ -151,10 +176,12 @@ object Train {
       logger.openLogger()
       logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
 
-      //Actualy train model
-      var bestNLL = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+      var stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+      var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL)
+
+      //Actualy train model
       var avg_update_time = 0f
       var mark = 1
       var epoch = 0
@@ -218,7 +245,8 @@ object Train {
           avg_update_time += (t1 - t0)
 
           if(numSampsSeen >= (mark * errorMark)){ //eval model @ this point
-            currNLL = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+            stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+            currNLL = stats(0)
             //logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
             currPPL = exp(currNLL)
             if(currNLL.dv.toFloat <= bestNLL.dv.toFloat){
@@ -243,7 +271,8 @@ object Train {
         }
 
         //Eval model after an epoch
-        currNLL = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+        stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+        currNLL = stats(0)
         currPPL = exp(currNLL)
         println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL)
         epoch += 1
@@ -258,7 +287,8 @@ object Train {
       val graph = archBuilder.loadOGraph(graphFname)
       graph.hardClear() //<-- clear out any gunked up data from previous sessions
       //graph.muteEvals(true,"L") //avoid calculating outermost-loss
-      val nll = Train.evalModel(rng,graph,archBuilder,N,dataChunks)
+      val stats = Train.evalModel(rng,graph,archBuilder,N,dataChunks)
+      val nll = stats(0)
       val ppl = exp(nll)
       println(" ====== Performance ======")
       println(" > Corpus.NLL = "+nll)
