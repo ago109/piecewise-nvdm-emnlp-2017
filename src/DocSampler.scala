@@ -24,6 +24,10 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
   var dim = this.dict.getLexiconSize()
   //this.loadDocsFromStreamToCache()
 
+  def numDocs():Int={
+    return cache.size()
+  }
+
   def loadDocsFromTSVToCache():Unit = {//assumes no header...
     val fd = MiscUtils.loadInFile(this.fname)
     var line = fd.readLine()
