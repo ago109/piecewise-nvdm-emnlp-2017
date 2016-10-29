@@ -31,8 +31,8 @@ object StreamToSamples {
 
   def main(args : Array[String]): Unit = {
     if (args.length < 5) {
-      System.err.println("usage: [/path/to/stream.txt] [seed] [tokenType] [/path/to/lexicon] [/path/to/subset.txt]" +
-        " ?[/path/to/complement.txt] ?[numDocsInSubset] ")
+      System.err.println("usage: [/path/to/stream.txt] [seed] [tokenType] [/path/to/lexicon] [/path/to/complement.txt]" +
+        " ?[/path/to/subset.txt] ?[numDocsInSubset] ")
       return
     }
     val fname = args(0)
@@ -55,6 +55,9 @@ object StreamToSamples {
     val tmpStream = new DocStream(fname)
     tmpStream.setTokenType(tokenType)
     tmpStream.lowerCaseDocs(false)
+    var smallestDocLen = 10000f
+    var largestDocLen = 0f
+    var maxTermValue = 0f
     var idx = 0
     var doc: Doc = tmpStream.nextDoc()
     while (!tmpStream.atEndOfStream() || doc != null) {
@@ -74,13 +77,17 @@ object StreamToSamples {
         doc.advanceSymbolPtr()
       }
       val sample = new DocSample(idx,dict.getLexiconSize())
-      samples.add(sample)
       sample.buildFrom(idx_val_map, applyTransform = true)
+      samples.add(sample)
+      maxTermValue = Math.max(sample.getMaxTermValue(),maxTermValue)
+      smallestDocLen = Math.min(smallestDocLen,sample.docLen)
+      largestDocLen = Math.max(largestDocLen,sample.docLen)
       idx += 1
       print("\r " + samples.size() + " docs converted to bag-of-words...")
       doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
     }
     println()
+    println(" > Doc.Len.Range = ["+smallestDocLen+" - " + largestDocLen + "], max.term.value = "+maxTermValue)
 
     //Now draw w/o replacement if so desired
     if(numDocsInSubset > 0){

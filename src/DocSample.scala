@@ -7,6 +7,17 @@ import java.util.HashMap
   */
 class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null, var bagOfVals : Array[Float] = null) {
   var targetPtr = 0
+  var docLen = 0f
+
+  def getMaxTermValue():Float={
+    var max = 0f
+    var t = 0
+    while(t < bagOfVals.length){
+      max = Math.max(max,bagOfVals(t))
+      t += 1
+    }
+    return max
+  }
 
   def drawTargetIdx():Int ={
     var targ = -1
@@ -32,7 +43,7 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     * Build a document-sample from an index-value map.
     *
     * @param idx_val_map
-    * @param applyTransform -> apply log(1 + TF) transform to values?
+    * @param applyTransform -> apply log(1 + TF) transform to values? (rounded to nearest integer)
     */
   def buildFrom(idx_val_map : HashMap[Integer,java.lang.Float], applyTransform : Boolean = true): Unit ={
     this.bagOfIdx = new Array[Int](idx_val_map.size())
@@ -42,8 +53,14 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     while (iter.hasNext) {
       val idx:Int = iter.next()
       var value:Float = idx_val_map.get(idx)
+      docLen += value
       if(applyTransform){
         value = Math.log(1f + value).toFloat
+        if(value >= 0.5f){
+          value = Math.round(Math.log(1f + value).toFloat)
+        }else{ //lower bound to 1 so no extra zero values are created
+          value = 1f
+        }
       }
       this.bagOfIdx(ptr) = idx
       this.bagOfVals(ptr) = value

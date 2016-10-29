@@ -124,6 +124,7 @@ object Train {
     val dataFname = configFile.getArg("dataFname")
     val dictFname = configFile.getArg("dictFname")
     val dict = new Lexicon(dictFname)
+    println(" > Vocab |V| = "+dict.getLexiconSize())
     val miniBatchSize = configFile.getArg("miniBatchSize").toInt
     val outputDir = configFile.getArg("outputDir")
     val dir = new File(outputDir)
@@ -176,6 +177,13 @@ object Train {
       }
       opt.norm_threshold = norm_rescale
 
+      println(" ++++ Model: " + graph.modelTypeName + " Properties ++++ ")
+      println("  # Inputs = "+graph.getOp("x-in").dim)
+      println("  # Hiddens = "+graph.getOp("h0").dim)
+      println("  # Latents = "+graph.getOp("z").dim)
+      println("  # Outputs = "+graph.getOp("x-out").dim)
+      println(" ++++++++++++++++++++++++++ ")
+
       val logger = new Logger(outputDir + graph.modelTypeName+"_stat.log")
       logger.openLogger()
       logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
@@ -207,7 +215,7 @@ object Train {
           val batch = sampler.drawMiniBatch(rng, miniBatchSize)
           val x = batch._1.asInstanceOf[Mat]
           val y = batch._2.asInstanceOf[Mat]
-          val numSamps = x.ncols
+          val numSamps = y.ncols
           numSampsSeen += numSamps
           numIter += 1
           graph.clamp(("x-in",x))
@@ -259,10 +267,10 @@ object Train {
               graph.theta.saveTheta(outputDir+"best_at_epoch_"+epoch)
             }
             mark += 1
-            println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
+            println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
             logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2))
           }
-          println("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s")
+          println("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
           //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
           //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
         }
