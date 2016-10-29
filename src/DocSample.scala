@@ -9,6 +9,16 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
   var targetPtr = 0
   var docLen = 0f
 
+  def getMinTermValue():Float={
+    var min = 10000f
+    var t = 0
+    while(t < bagOfVals.length){
+      min = Math.min(min,bagOfVals(t))
+      t += 1
+    }
+    return min
+  }
+
   def getMaxTermValue():Float={
     var max = 0f
     var t = 0

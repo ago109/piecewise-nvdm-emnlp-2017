@@ -58,6 +58,7 @@ object StreamToSamples {
     var smallestDocLen = 10000f
     var largestDocLen = 0f
     var maxTermValue = 0f
+    var minTermValue = 10000f
     var idx = 0
     var doc: Doc = tmpStream.nextDoc()
     while (!tmpStream.atEndOfStream() || doc != null) {
@@ -80,6 +81,7 @@ object StreamToSamples {
       sample.buildFrom(idx_val_map, applyTransform = true)
       samples.add(sample)
       maxTermValue = Math.max(sample.getMaxTermValue(),maxTermValue)
+      minTermValue = Math.min(sample.getMinTermValue(),minTermValue)
       smallestDocLen = Math.min(smallestDocLen,sample.docLen)
       largestDocLen = Math.max(largestDocLen,sample.docLen)
       idx += 1
@@ -87,7 +89,8 @@ object StreamToSamples {
       doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
     }
     println()
-    println(" > Doc.Len.Range = ["+smallestDocLen+" - " + largestDocLen + "], max.term.value = "+maxTermValue)
+    println(" > Doc.Len.Range = ["+smallestDocLen+" - " + largestDocLen + "], " +
+      "Term.Value.Range = ["+minTermValue + " - " + maxTermValue+"]")
 
     //Now draw w/o replacement if so desired
     if(numDocsInSubset > 0){
