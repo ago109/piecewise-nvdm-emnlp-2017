@@ -41,9 +41,11 @@ object Train {
     * @param graph
     * @param archBuilder
     * @param dataChunks
+    * @param numModelSamples -> num samples to compute expectation of lower-bound over for model
     * @return (doc.nll, loss, KL-gaussian-score, KL-piecewise-score)
     */
-  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch, dataChunks : ArrayList[(Mat,Mat)]):Array[Mat] ={
+  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch,
+                dataChunks : ArrayList[(Mat,Mat)], numModelSamples : Int = 10):Array[Mat] ={
     val numDocs = dataChunks.size() * 1f
     val stats =new Array[Mat](3)
     var doc_nll:Mat = 0f
@@ -57,51 +59,76 @@ object Train {
       //val L_n = sum((x > 0f),1) //get per-document lengths
       val L_n = x.ncols * 1f //get per-document lengths
       val numSamps = x.ncols * 1f
-      //Evaluate model on x using y as the target
-      graph.clamp(("x-in",x))
-      graph.clamp(("x-targ",y))
 
-      //Generate random samples for model is needed
-      if(graph.modelTypeName.contains("hybrid")){
-        val eps_gauss:Mat = normrnd(0f,1f,archBuilder.n_lat,x.ncols)
-        val eps_piece:Mat = rand(archBuilder.n_lat,x.ncols)
-        graph.clamp(("eps-gauss",eps_gauss))
-        graph.clamp(("eps-piece",eps_piece))
-      }else if(graph.modelTypeName.contains("gaussian")){
-        val eps_gauss:Mat = normrnd(0f,1f,archBuilder.n_lat,x.ncols)
-        graph.clamp(("eps-gauss",eps_gauss))
-      }else if(graph.modelTypeName.contains("piece")){
-        val eps_piece:Mat = rand(archBuilder.n_lat,x.ncols)
-        graph.clamp(("eps-piece",eps_piece))
-      }
+      var s = 0
+      var log_probs: Mat = null
+      var KL_gauss_s:Mat = 0f
+      var KL_piece_s:Mat = 0f
+      while(s < numModelSamples) {
+        //Evaluate model on x using y as the target
+        graph.clamp(("x-in", x))
+        graph.clamp(("x-targ", y))
 
-      //Run inference & estimate posterior probabilities
-      graph.eval()
-      var log_probs:Mat = null
-      if(graph.modelTypeName.contains("vae")){ //If model is variational, use lower-bound to get probs
-        val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"),1) //P_\Theta
-        var KL_term:Mat = null
-        if(graph.modelTypeName.contains("hybrid")){
-          val KL_gauss = graph.getOp("KL-gauss").per_samp_result
-          val KL_piece = graph.getOp("KL-piece").per_samp_result
-          KL_term = KL_gauss + KL_piece
-          KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
-          KL_piece_score += graph.getStat("KL-piece") *@ numSamps
-        }else if(graph.modelTypeName.contains("gaussian")){
-          KL_term = graph.getOp("KL-gauss").per_samp_result
-          KL_gauss_score += graph.getStat("KL-gauss") *@ numSamps
-        }else if(graph.modelTypeName.contains("piece")){
-          KL_term = graph.getOp("KL-piece").per_samp_result
-          KL_piece_score += graph.getStat("KL-piece") *@ numSamps
+        //Generate random samples for model is needed
+        if (graph.modelTypeName.contains("hybrid")) {
+          val eps_gauss: Mat = normrnd(0f, 1f, archBuilder.n_lat, x.ncols)
+          val eps_piece: Mat = rand(archBuilder.n_lat, x.ncols)
+          graph.clamp(("eps-gauss", eps_gauss))
+          graph.clamp(("eps-piece", eps_piece))
+        } else if (graph.modelTypeName.contains("gaussian")) {
+          val eps_gauss: Mat = normrnd(0f, 1f, archBuilder.n_lat, x.ncols)
+          graph.clamp(("eps-gauss", eps_gauss))
+        } else if (graph.modelTypeName.contains("piece")) {
+          val eps_piece: Mat = rand(archBuilder.n_lat, x.ncols)
+          graph.clamp(("eps-piece", eps_piece))
         }
-        val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
-        log_probs = vlb //user vlb in place of intractable distribution
-      }else{  //If model is NOT variational, use its decoder's posterior
-        log_probs = graph.getStat("L") *@ numSamps
+
+        //Run inference & estimate posterior probabilities
+        graph.eval()
+        if (graph.modelTypeName.contains("vae")) {
+          //If model is variational, use lower-bound to get probs
+          val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"), 1) //P_\Theta
+          var KL_term: Mat = null
+          if (graph.modelTypeName.contains("hybrid")) {
+            val KL_gauss = graph.getOp("KL-gauss").per_samp_result
+            val KL_piece = graph.getOp("KL-piece").per_samp_result
+            KL_term = KL_gauss + KL_piece
+            KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
+            KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+          } else if (graph.modelTypeName.contains("gaussian")) {
+            KL_term = graph.getOp("KL-gauss").per_samp_result
+            KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
+          } else if (graph.modelTypeName.contains("piece")) {
+            KL_term = graph.getOp("KL-piece").per_samp_result
+            KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+          }
+          val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
+          if(null != log_probs){
+            log_probs = log_probs + vlb
+          }else
+            log_probs = vlb //user vlb in place of intractable distribution
+        } else {
+          //If model is NOT variational, use its decoder's posterior
+          log_probs = graph.getStat("L") *@ numSamps
+        }
+        s += 1
+        if(graph.getOp("h1") != null){
+          graph.toggleFreezeOp("h1",true)
+        }else{
+          graph.toggleFreezeOp("h0",true)
+        }
       }
-      log_probs = log_probs
+      log_probs = log_probs / (numModelSamples * 1f) // get E[VLB]
       doc_nll += (sum(log_probs) / L_n)
+      KL_gauss_score += (KL_gauss_s / (numModelSamples * 1f))
+      KL_piece_score += (KL_piece_s / (numModelSamples * 1f))
+
       graph.hardClear()
+      if(graph.getOp("h1") != null){
+        graph.toggleFreezeOp("h1",false)
+      }else{
+        graph.toggleFreezeOp("h0",false)
+      }
       i += 1
     }
     stats(0) = -doc_nll / (1f * numDocs)
@@ -282,7 +309,8 @@ object Train {
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
             logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(avg_update_time/numIter * 1e-9f))
           }
-          print("\r "+epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
+          print("\r "+epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f)
+            + " s, over "+numSampsSeen + " samples")
           //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
           //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
         }
