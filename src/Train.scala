@@ -175,6 +175,7 @@ object Train {
       val patience = configFile.getArg("patience").toInt
       val lr_div = configFile.getArg("lr_div").toFloat
       val epoch_bound = configFile.getArg("epoch_bound").toInt
+      val gamma_iter_bound = configFile.getArg("gamma_iter_bound").toInt
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
       validSampler.loadDocsFromLibSVMoCache()
@@ -227,6 +228,8 @@ object Train {
       logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA")
 
       //Actualy train model
+      var totalNumIter = 0
+      val gamma_delta = (1f - archBuilder.vae_gamma)/(gamma_iter_bound*1f)
       var impatience = 0
       var epoch = 0
       while(epoch < numEpochs) {
@@ -251,6 +254,7 @@ object Train {
           val numSamps = y.ncols
           numSampsSeen += numSamps
           numIter += 1
+          totalNumIter += 1
           graph.clamp(("x-in",x))
           graph.clamp(("x-targ",y))
 
@@ -285,6 +289,11 @@ object Train {
            * ####################################################
            */
           opt.update(theta = graph.theta, nabla = grad, miniBatchSize = numSamps)
+
+          if(gamma_iter_bound > 0){
+            val gamma = Math.min(1f,graph.theta.getParam("gamma").dv.toFloat + gamma_delta)
+            graph.theta.setParam("gamma",gamma)
+          }
 
           val t1 = System.nanoTime()
           avg_update_time += (t1 - t0)
