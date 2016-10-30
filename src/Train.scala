@@ -134,7 +134,7 @@ object Train {
 
     //Build a sampler for main data-set
     val sampler = new DocSampler(dataFname,dict)
-    sampler.loadDocsFromTSVToCache()
+    sampler.loadDocsFromLibSVMoCache()
 
     if(trainModel){ //train/fit model to data
       archBuilder.readConfig(configFile)
@@ -147,7 +147,7 @@ object Train {
       var lr = configFile.getArg("lr").toFloat
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
-      validSampler.loadDocsFromTSVToCache()
+      validSampler.loadDocsFromLibSVMoCache()
       val valid_N = validSampler.numDocs()
       val dataChunks = Train.buildDataChunks(rng,validSampler,miniBatchSize)
       validSampler = null //toss aside this sampler for garbage collection
@@ -192,7 +192,7 @@ object Train {
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
-      logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2))
+      logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA")
 
       //Actualy train model
       var epoch = 0
@@ -267,10 +267,10 @@ object Train {
               graph.theta.saveTheta(outputDir+"best_at_epoch_"+epoch)
             }
             mark += 1
-            println("\n > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
-            logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2))
+            println("\n > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
+            logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(avg_update_time/numIter * 1e-9f))
           }
-          println("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
+          print("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
           //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
           //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
         }
@@ -293,7 +293,7 @@ object Train {
           bestNLL = currNLL
           bestPPL = currPPL
         }
-        logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2))
+        logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(avg_update_time/numIter * 1e-9f))
         println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
         epoch += 1
         sampler.reset()

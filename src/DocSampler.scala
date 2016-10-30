@@ -29,18 +29,21 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     return this.totalNumDocs
   }
 
-  def loadDocsFromTSVToCache():Unit = {//assumes no header...
+  /**
+    * Reads in a libsvm format file (as a result, this method will convert 1-based indexing to 0-based indexing).
+    */
+  def loadDocsFromLibSVMoCache():Unit = {//assumes no header...
     val fd = MiscUtils.loadInFile(this.fname)
     var line = fd.readLine()
     while(line != null){
-      var tok = line.replaceAll(" ","").split("\t")
-      val doc_id = tok(0).toInt
-      tok = tok(1).split(",")
+      val tok = line.split("\\s+") //split doc into pieces
+      val doc_id = tok(0).toInt //1st item is always document index
+      //rest of n-1 items are index:value pairs to be parsed
       val idx_val_map = new HashMap[Integer,java.lang.Float]()
-      var i = 0
+      var i = 1
       while(i < tok.length){
         val sub_tok = tok(i).split(":")
-        val idx = sub_tok(0).toInt
+        val idx = sub_tok(0).toInt - 1 // converts 1-based index to 0-based index
         val value = sub_tok(1).toFloat
         var currVal = idx_val_map.get(idx)
         if(currVal != null){
@@ -159,8 +162,12 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
         col_ptr += 1
         mb_size += 1
       }
-      //println("x.ind: "+x_ind.t)
-      //println("y.ind: "+y_ind.t)
+      /*
+      println(x_col.t)
+      println("x.ind: "+x_ind.t)
+      println(y_col.t)
+      println("y.ind: "+y_ind.t)
+      */
       //Now compose the mini-batch (x,y) with whatever we could scrape
       val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,mb_size)
       val y = sparse(IMat(y_ind),IMat(y_col),FMat(y_val),this.dim,mb_size)

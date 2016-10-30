@@ -55,6 +55,7 @@ object StreamToSamples {
     val tmpStream = new DocStream(fname)
     tmpStream.setTokenType(tokenType)
     tmpStream.lowerCaseDocs(false)
+    var numDocsDiscarded = 0
     var smallestDocLen = 10000f
     var largestDocLen = 0f
     var maxTermValue = 0f
@@ -62,28 +63,34 @@ object StreamToSamples {
     var idx = 0
     var doc: Doc = tmpStream.nextDoc()
     while (!tmpStream.atEndOfStream() || doc != null) {
-      val idx_val_map = new HashMap[Integer,java.lang.Float]()
-      while(doc.atEOF() == false){
-        val symb = doc.getCurrentSymbol()
-        val symb_idx = dict.getIndex(symb)
-        if(symb_idx != null){
-          var currVal = idx_val_map.get(symb_idx)
-          if(currVal != null){
-            currVal += 1f
-            idx_val_map.put(symb_idx,currVal)
-          }else{
-            idx_val_map.put(symb_idx,1f)
-          }
-        }//else toss out symbols that do NOT occur in lexicon...
-        doc.advanceSymbolPtr()
+      if(doc != null) {
+        val idx_val_map = new HashMap[Integer, java.lang.Float]()
+        while (doc.atEOF() == false) {
+          val symb = doc.getCurrentSymbol()
+          val symb_idx = dict.getIndex(symb)
+          if (symb_idx != null) {
+            var currVal = idx_val_map.get(symb_idx)
+            if (currVal != null) {
+              currVal += 1f
+              idx_val_map.put(symb_idx, currVal)
+            } else {
+              idx_val_map.put(symb_idx, 1f)
+            }
+          } //else toss out symbols that do NOT occur in lexicon...
+          doc.advanceSymbolPtr()
+        }
+        if(idx_val_map.size() > 0) {
+          val sample = new DocSample(idx, dict.getLexiconSize())
+          sample.buildFrom(idx_val_map, applyTransform = true)
+          samples.add(sample)
+          maxTermValue = Math.max(sample.getMaxTermValue(), maxTermValue)
+          minTermValue = Math.min(sample.getMinTermValue(), minTermValue)
+          smallestDocLen = Math.min(smallestDocLen, sample.docLen)
+          largestDocLen = Math.max(largestDocLen, sample.docLen)
+        }else{
+          numDocsDiscarded += 1
+        }
       }
-      val sample = new DocSample(idx,dict.getLexiconSize())
-      sample.buildFrom(idx_val_map, applyTransform = true)
-      samples.add(sample)
-      maxTermValue = Math.max(sample.getMaxTermValue(),maxTermValue)
-      minTermValue = Math.min(sample.getMinTermValue(),minTermValue)
-      smallestDocLen = Math.min(smallestDocLen,sample.docLen)
-      largestDocLen = Math.max(largestDocLen,sample.docLen)
       idx += 1
       print("\r " + samples.size() + " docs converted to bag-of-words...")
       doc = tmpStream.nextDoc() //grab next doc from Doc-Stream
@@ -91,7 +98,7 @@ object StreamToSamples {
     println()
     println(" > Doc.Len.Range = ["+smallestDocLen+" - " + largestDocLen + "], " +
       "Term.Value.Range = ["+minTermValue + " - " + maxTermValue+"]")
-
+    println(" > Discarded "+ numDocsDiscarded + " empty docs...")
     //Now draw w/o replacement if so desired
     if(numDocsInSubset > 0){
       val subsetSamples = new ArrayList[DocSample]()

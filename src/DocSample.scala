@@ -1,8 +1,10 @@
 import java.util.HashMap
 
 /**
-  * Simple container to represent a bag-of-words model for a labeled document.
-  *
+  * Simple container to represent a bag-of-words model for a labeled document. NOTE that the toString()
+  * method of this object will print the sparse bag of words vector to libsvm format:<br>
+  *   [doc_idx] [feat_idx_0]:[feat_val_0] ... [feat_idx_n]:[feat_val_n]
+  * <br>
   * Created by ago109 on 10/27/16.
   */
 class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null, var bagOfVals : Array[Float] = null) {
@@ -78,14 +80,29 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     }
   }
 
-  override def toString():String ={
-    var out = "" + this.doc_id + "\t"
+  /**
+    * A special routine to ensure print-out of 1-based indices (like proper libsvm format).
+    * @return
+    */
+  def toLibSVMString():String ={
+    var out = "" + this.doc_id + " "
     var i = 0
     while(i < this.bagOfIdx.length){
-      out += ""+this.bagOfIdx(i) + ":" + this.bagOfVals(i)+","
+      out += ""+ (this.bagOfIdx(i)+1) + ":" + this.bagOfVals(i)+" "
       i += 1
     }
-    out = out.substring(0,out.length()-1) //nix trailing comma...
+    out = out.substring(0,out.length()-1) //nix trailing space...
+    return out
+  }
+
+  override def toString():String ={
+    var out = "" + this.doc_id + " "
+    var i = 0
+    while(i < this.bagOfIdx.length){
+      out += ""+this.bagOfIdx(i) + ":" + this.bagOfVals(i)+" "
+      i += 1
+    }
+    out = out.substring(0,out.length()-1) //nix trailing space...
     return out
   }
 
