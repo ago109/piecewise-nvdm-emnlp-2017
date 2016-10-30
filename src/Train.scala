@@ -25,10 +25,11 @@ import YADLL.Utils.ConfigFile
 object Train {
   Mat.checkMKL //<-- needed in order to check for BIDMat on cpu or gpu...
 
-  def buildDataChunks(rng : Random, sampler : DocSampler, blockSize : Int):ArrayList[(Mat,Mat)]={
+  //def buildDataChunks(rng : Random, sampler : DocSampler, blockSize : Int)
+  def buildDataChunks(sampler : DocSampler):ArrayList[(Mat,Mat)]={
     val chunks = new ArrayList[(Mat,Mat)]()
     while(sampler.isDepleted() == false){
-      val batch = sampler.drawMiniBatch(rng,blockSize)
+      val batch = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)
       chunks.add(batch)
     }
     return chunks
@@ -39,12 +40,11 @@ object Train {
     * @param rng
     * @param graph
     * @param archBuilder
-    * @param numDocs
     * @param dataChunks
     * @return (doc.nll, loss, KL-gaussian-score, KL-piecewise-score)
     */
-  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch, numDocs : Int,
-                dataChunks : ArrayList[(Mat,Mat)]):Array[Mat] ={
+  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch, dataChunks : ArrayList[(Mat,Mat)]):Array[Mat] ={
+    val numDocs = dataChunks.size() * 1f
     val stats =new Array[Mat](3)
     var doc_nll:Mat = 0f
     var KL_gauss_score:Mat = 0f
@@ -54,9 +54,9 @@ object Train {
       val batch = dataChunks.get(i)
       val x = batch._1.asInstanceOf[Mat]
       val y = batch._2.asInstanceOf[Mat]
-      val L_n = sum((x > 0f),1) //get per-document lengths
+      //val L_n = sum((x > 0f),1) //get per-document lengths
+      val L_n = x.ncols * 1f //get per-document lengths
       val numSamps = x.ncols * 1f
-
       //Evaluate model on x using y as the target
       graph.clamp(("x-in",x))
       graph.clamp(("x-targ",y))
@@ -99,8 +99,8 @@ object Train {
       }else{  //If model is NOT variational, use its decoder's posterior
         log_probs = graph.getStat("L") *@ numSamps
       }
-      log_probs = log_probs / L_n //1/L_n * log P(X_n) for specific words in Doc_n
-      doc_nll += sum(log_probs)
+      log_probs = log_probs
+      doc_nll += (sum(log_probs) / L_n)
       graph.hardClear()
       i += 1
     }
@@ -144,12 +144,14 @@ object Train {
       val errorMark = configFile.getArg("errorMark").toInt
       val norm_rescale = configFile.getArg("norm_rescale").toFloat
       val optimizer = configFile.getArg("optimizer")
-      var lr = configFile.getArg("lr").toFloat
+      val lr = configFile.getArg("lr").toFloat
+      val patience = configFile.getArg("patience").toInt
+      val lr_div = configFile.getArg("lr_div").toFloat
+      val epoch_bound = configFile.getArg("epoch_bound").toInt
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
       validSampler.loadDocsFromLibSVMoCache()
-      val valid_N = validSampler.numDocs()
-      val dataChunks = Train.buildDataChunks(rng,validSampler,miniBatchSize)
+      val dataChunks = Train.buildDataChunks(validSampler)
       validSampler = null //toss aside this sampler for garbage collection
 
       //Build Ograph given config
@@ -179,7 +181,10 @@ object Train {
 
       println(" ++++ Model: " + graph.modelTypeName + " Properties ++++ ")
       println("  # Inputs = "+graph.getOp("x-in").dim)
-      println("  # Hiddens = "+graph.getOp("h0").dim)
+      println("  # Lyr 1 Hiddens = "+graph.getOp("h0").dim)
+      if(archBuilder.n_hid_2 > 0){
+        println("  # Lyr 2 Hiddens = "+graph.getOp("h1").dim)
+      }
       println("  # Latents = "+graph.getOp("z").dim)
       println("  # Outputs = "+graph.getOp("x-out").dim)
       println(" ++++++++++++++++++++++++++ ")
@@ -188,13 +193,14 @@ object Train {
       logger.openLogger()
       logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
 
-      var stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+      var stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
       logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA")
 
       //Actualy train model
+      var impatience = 0
       var epoch = 0
       while(epoch < numEpochs) {
         if(epoch == (numEpochs-1)){
@@ -212,7 +218,7 @@ object Train {
            * Gather & clamp data/samples to OGraph
            * ####################################################
            */
-          val batch = sampler.drawMiniBatch(rng, miniBatchSize)
+          val batch = sampler.drawMiniBatch(miniBatchSize, rng)
           val x = batch._1.asInstanceOf[Mat]
           val y = batch._2.asInstanceOf[Mat]
           val numSamps = y.ncols
@@ -257,7 +263,7 @@ object Train {
           avg_update_time += (t1 - t0)
 
           if(errorMark > 0 && numSampsSeen >= (mark * errorMark)){ //eval model @ this point
-            stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+            stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
             currNLL = stats(0)
             //logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
             currPPL = exp(currNLL)
@@ -265,12 +271,18 @@ object Train {
               bestNLL = currNLL
               bestPPL = currPPL
               graph.theta.saveTheta(outputDir+"best_at_epoch_"+epoch)
+            }else{
+              impatience += 1
+              if(impatience >= patience && epoch >= epoch_bound){
+                opt.stepSize = opt.stepSize / lr_div
+                impatience = 0
+              }
             }
             mark += 1
-            println("\n > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
+            println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
             logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(avg_update_time/numIter * 1e-9f))
           }
-          print("\r > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
+          print("\r "+epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " T = "+ (avg_update_time/numIter * 1e-9f) + " s, over "+numSampsSeen + " samples")
           //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
           //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
         }
@@ -286,7 +298,7 @@ object Train {
         }
 
         //Eval model after an epoch
-        stats = Train.evalModel(rng,graph,archBuilder,valid_N,dataChunks)
+        stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
         currNLL = stats(0)
         currPPL = exp(currNLL)
         if(currNLL.dv.toFloat <= bestNLL.dv.toFloat) {
@@ -299,19 +311,18 @@ object Train {
         sampler.reset()
       }
     }else{ //evaluation only
-      val N = sampler.numDocs()
-      val dataChunks = Train.buildDataChunks(rng,sampler,miniBatchSize)
+      val dataChunks = Train.buildDataChunks(sampler)
       //Load graph given config
       val graph = archBuilder.loadOGraph(graphFname)
       graph.hardClear() //<-- clear out any gunked up data from previous sessions
       //graph.muteEvals(true,"L") //avoid calculating outermost-loss
-      val stats = Train.evalModel(rng,graph,archBuilder,N,dataChunks)
+      val stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
       val nll = stats(0)
       val ppl = exp(nll)
       println(" ====== Performance ======")
       println(" > Corpus.NLL = "+nll)
       println(" > Corpus.PPL = "+ppl)
-      println(" > over "+N + " documents")
+      println(" > over "+ dataChunks.size() + " documents")
     }
   }
 
