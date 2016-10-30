@@ -39,18 +39,19 @@ object Train {
     *
     * @param rng
     * @param graph
-    * @param archBuilder
     * @param dataChunks
     * @param numModelSamples -> num samples to compute expectation of lower-bound over for model
     * @return (doc.nll, loss, KL-gaussian-score, KL-piecewise-score)
     */
-  def evalModel(rng : Random, graph : OGraph, archBuilder : BuildArch,
-                dataChunks : ArrayList[(Mat,Mat)], numModelSamples : Int = 10):Array[Mat] ={
+  def evalModel(rng : Random, graph : OGraph, dataChunks : ArrayList[(Mat,Mat)], numModelSamples : Int = 10):Array[Mat] ={
+    graph.hardClear()
     val numDocs = dataChunks.size() * 1f
     val stats =new Array[Mat](3)
     var doc_nll:Mat = 0f
     var KL_gauss_score:Mat = 0f
     var KL_piece_score:Mat = 0f
+    var numDocsSeen = 0
+    val n_lat = graph.getOp("z").dim //we need to know # of latent variables in model
     var i = 0
     while(i < dataChunks.size()){
       val batch = dataChunks.get(i)
@@ -59,7 +60,6 @@ object Train {
       //val L_n = sum((x > 0f),1) //get per-document lengths
       val L_n = x.ncols * 1f //get per-document lengths
       val numSamps = x.ncols * 1f
-
       var s = 0
       var log_probs: Mat = null
       var KL_gauss_s:Mat = 0f
@@ -71,15 +71,15 @@ object Train {
 
         //Generate random samples for model is needed
         if (graph.modelTypeName.contains("hybrid")) {
-          val eps_gauss: Mat = normrnd(0f, 1f, archBuilder.n_lat, x.ncols)
-          val eps_piece: Mat = rand(archBuilder.n_lat, x.ncols)
+          val eps_gauss: Mat = normrnd(0f, 1f, n_lat, x.ncols)
+          val eps_piece: Mat = rand(n_lat, x.ncols)
           graph.clamp(("eps-gauss", eps_gauss))
           graph.clamp(("eps-piece", eps_piece))
         } else if (graph.modelTypeName.contains("gaussian")) {
-          val eps_gauss: Mat = normrnd(0f, 1f, archBuilder.n_lat, x.ncols)
+          val eps_gauss: Mat = normrnd(0f, 1f, n_lat, x.ncols)
           graph.clamp(("eps-gauss", eps_gauss))
         } else if (graph.modelTypeName.contains("piece")) {
-          val eps_piece: Mat = rand(archBuilder.n_lat, x.ncols)
+          val eps_piece: Mat = rand(n_lat, x.ncols)
           graph.clamp(("eps-piece", eps_piece))
         }
 
@@ -118,6 +118,7 @@ object Train {
           graph.toggleFreezeOp("h0",true)
         }
       }
+      numDocsSeen += 1
       log_probs = log_probs / (numModelSamples * 1f) // get E[VLB]
       doc_nll += (sum(log_probs) / L_n)
       KL_gauss_score += (KL_gauss_s / (numModelSamples * 1f))
@@ -129,8 +130,10 @@ object Train {
       }else{
         graph.toggleFreezeOp("h0",false)
       }
+      print("\r > "+numDocsSeen + " docs seen...")
       i += 1
     }
+    println()
     stats(0) = -doc_nll / (1f * numDocs)
     stats(1) = KL_gauss_score /// (1f * numDocs)
     stats(2) = KL_piece_score  /// (1f * numDocs)
@@ -152,20 +155,31 @@ object Train {
     val dictFname = configFile.getArg("dictFname")
     val dict = new Lexicon(dictFname)
     println(" > Vocab |V| = "+dict.getLexiconSize())
-    val miniBatchSize = configFile.getArg("miniBatchSize").toInt
-    val outputDir = configFile.getArg("outputDir")
-    val dir = new File(outputDir)
-    dir.mkdir() //<-- build dir on disk if it doesn't already exist...
     val trainModel = configFile.getArg("trainModel").toBoolean
-    val graphFname = configFile.getArg("graphFname")
+    var graphFname = configFile.getArg("graphFname")
+
+    var outputDir:String = null
+    if(graphFname.contains("/")){ //extract output directory from graph fname if applicable...
+      outputDir = graphFname.substring(0,graphFname.lastIndexOf("/")+1)
+      val dir = new File(outputDir)
+      dir.mkdir() //<-- build dir on disk if it doesn't already exist...
+      graphFname = graphFname.substring(graphFname.indexOf("/")+1)
+    }else{
+      outputDir = "tmp_model_out/"
+      val dir = new File(outputDir)
+      dir.mkdir() //<-- build dir on disk if it doesn't already exist...
+    }
+
+    //Read in config file to get all program meta-parameters
+    archBuilder.readConfig(configFile)
+    archBuilder.n_in = dict.getLexiconSize() //input/output-dim is = to |V|
 
     //Build a sampler for main data-set
     val sampler = new DocSampler(dataFname,dict)
     sampler.loadDocsFromLibSVMoCache()
 
     if(trainModel){ //train/fit model to data
-      archBuilder.readConfig(configFile)
-      archBuilder.n_in = dict.getLexiconSize() //input/output-dim is = to |V|
+      val miniBatchSize = configFile.getArg("miniBatchSize").toInt
       val numEpochs = configFile.getArg("numEpochs").toInt
       val validFname = configFile.getArg("validFname")
       val errorMark = configFile.getArg("errorMark").toInt
@@ -185,6 +199,7 @@ object Train {
       //Build Ograph given config
       val graph = archBuilder.autoBuildGraph()
       graph.saveOGraph(outputDir+graphFname)
+      val n_lat = graph.getOp("z").dim
 
       //Build optimizer given config
       var opt:Opt = null
@@ -217,11 +232,11 @@ object Train {
       println("  # Outputs = "+graph.getOp("x-out").dim)
       println(" ++++++++++++++++++++++++++ ")
 
-      val logger = new Logger(outputDir + graph.modelTypeName+"_stat.log")
+      val logger = new Logger(outputDir + "error_stat.log")
       logger.openLogger()
       logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
 
-      var stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
+      var stats = Train.evalModel(rng,graph,dataChunks)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
@@ -260,15 +275,15 @@ object Train {
 
           //Generate random samples for model is needed
           if(graph.modelTypeName.contains("hybrid")){
-            val eps_gauss:Mat = normrnd(0f,1f,archBuilder.n_lat,x.ncols)
-            val eps_piece:Mat = rand(archBuilder.n_lat,x.ncols)
+            val eps_gauss:Mat = normrnd(0f,1f,n_lat,x.ncols)
+            val eps_piece:Mat = rand(n_lat,x.ncols)
             graph.clamp(("eps-gauss",eps_gauss))
             graph.clamp(("eps-piece",eps_piece))
           }else if(graph.modelTypeName.contains("gaussian")){
-            val eps_gauss:Mat = normrnd(0f,1f,archBuilder.n_lat,x.ncols)
+            val eps_gauss:Mat = normrnd(0f,1f,n_lat,x.ncols)
             graph.clamp(("eps-gauss",eps_gauss))
           }else if(graph.modelTypeName.contains("piece")){
-            val eps_piece:Mat = rand(archBuilder.n_lat,x.ncols)
+            val eps_piece:Mat = rand(n_lat,x.ncols)
             graph.clamp(("eps-piece",eps_piece))
           }
 
@@ -299,7 +314,7 @@ object Train {
           avg_update_time += (t1 - t0)
 
           if(errorMark > 0 && numSampsSeen >= (mark * errorMark)){ //eval model @ this point
-            stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
+            stats = Train.evalModel(rng,graph,dataChunks)
             currNLL = stats(0)
             //logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
             currPPL = exp(currNLL)
@@ -308,10 +323,12 @@ object Train {
               bestPPL = currPPL
               graph.theta.saveTheta(outputDir+"best_at_epoch_"+epoch)
             }else{
-              impatience += 1
-              if(impatience >= patience && epoch >= epoch_bound){
-                opt.stepSize = opt.stepSize / lr_div
-                impatience = 0
+              if(epoch >= epoch_bound) {
+                impatience += 1
+                if (impatience >= patience) {
+                  opt.stepSize = opt.stepSize / lr_div
+                  impatience = 0
+                }
               }
             }
             mark += 1
@@ -335,12 +352,20 @@ object Train {
         }
 
         //Eval model after an epoch
-        stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
+        stats = Train.evalModel(rng,graph,dataChunks)
         currNLL = stats(0)
         currPPL = exp(currNLL)
         if(currNLL.dv.toFloat <= bestNLL.dv.toFloat) {
           bestNLL = currNLL
           bestPPL = currPPL
+        }else{
+          if(epoch >= epoch_bound) {
+            impatience += 1
+            if (impatience >= patience) {
+              opt.stepSize = opt.stepSize / lr_div
+              impatience = 0
+            }
+          }
         }
         logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(avg_update_time/numIter * 1e-9f))
         println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
@@ -348,12 +373,19 @@ object Train {
         sampler.reset()
       }
     }else{ //evaluation only
-      val dataChunks = Train.buildDataChunks(sampler)
+      val thetaFname = configFile.getArg("thetaFname")
+      println(" > Loading Theta: "+thetaFname)
+      val theta = archBuilder.loadTheta(thetaFname)
       //Load graph given config
+      println(" > Loading OGraph: "+graphFname)
       val graph = archBuilder.loadOGraph(graphFname)
+      graph.theta = theta
       graph.hardClear() //<-- clear out any gunked up data from previous sessions
+      println(" > Building data-set...")
+      val dataChunks = Train.buildDataChunks(sampler)
+      println(" > Evaluating model on data-set...")
       //graph.muteEvals(true,"L") //avoid calculating outermost-loss
-      val stats = Train.evalModel(rng,graph,archBuilder,dataChunks)
+      val stats = Train.evalModel(rng,graph,dataChunks)
       val nll = stats(0)
       val ppl = exp(nll)
       println(" ====== Performance ======")

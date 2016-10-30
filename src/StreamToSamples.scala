@@ -21,7 +21,7 @@ object StreamToSamples {
     fd.openLogger()
     var i = 0
     while(i < samples.size()){
-      val samp = samples.get(i).toString()
+      val samp = samples.get(i).toLibSVMString() //.toString()
       fd.writeStringln(samp)
       i += 1
     }
