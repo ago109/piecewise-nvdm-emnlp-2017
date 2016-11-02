@@ -57,7 +57,8 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     * @param idx_val_map
     * @param applyTransform -> apply log(1 + TF) transform to values? (rounded to nearest integer)
     */
-  def buildFrom(idx_val_map : HashMap[Integer,java.lang.Float], applyTransform : Boolean = true): Unit ={
+  def buildFrom(idx_val_map : HashMap[Integer,java.lang.Float], applyTransform : Boolean = false,
+                binarizeVectors : Boolean = false): Unit ={
     this.bagOfIdx = new Array[Int](idx_val_map.size())
     this.bagOfVals = new Array[Float](idx_val_map.size())
     val iter = (idx_val_map.keySet()).iterator()
@@ -66,7 +67,9 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
       val idx:Int = iter.next()
       var value:Float = idx_val_map.get(idx)
       docLen += value
-      if(applyTransform){
+      if(binarizeVectors){ //Simple binarization filter
+        value = 1f
+      }else if(applyTransform){ //Hinton-style log(1 + TF) filter
         value = Math.log(1f + value).toFloat
         if(value >= 0.5f){
           value = Math.round(Math.log(1f + value).toFloat)
