@@ -95,17 +95,29 @@ object Train {
           val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"), 1) //P_\Theta
           var KL_term: Mat = null
           if (graph.modelTypeName.contains("hybrid")) {
-            val KL_gauss = graph.getOp("KL-gauss").per_samp_result
-            val KL_piece = graph.getOp("KL-piece").per_samp_result
-            KL_term = KL_gauss + KL_piece
-            KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
-            KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+            if(null != graph.theta.getParam("gamma")) {
+              val KL_gauss = graph.getOp("KL-gauss").per_samp_result
+              val KL_piece = graph.getOp("KL-piece").per_samp_result
+              KL_term = KL_gauss + KL_piece
+              KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
+              KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+            }else{
+              KL_term = 0f
+            }
           } else if (graph.modelTypeName.contains("gaussian")) {
-            KL_term = graph.getOp("KL-gauss").per_samp_result
-            KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
+            if(null != graph.theta.getParam("gamma")) {
+              KL_term = graph.getOp("KL-gauss").per_samp_result
+              KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
+            }else{
+              KL_term = 0f
+            }
           } else if (graph.modelTypeName.contains("piece")) {
-            KL_term = graph.getOp("KL-piece").per_samp_result
-            KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+            if(null != graph.theta.getParam("gamma")) {
+              KL_term = graph.getOp("KL-piece").per_samp_result
+              KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+            }else{
+              KL_term = 0f
+            }
           }
           val vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
           if(null != log_probs){
@@ -163,6 +175,10 @@ object Train {
     println(" > Vocab |V| = "+dict.getLexiconSize())
     val trainModel = configFile.getArg("trainModel").toBoolean
     var graphFname = configFile.getArg("graphFname")
+    var printDims = false
+    if(configFile.isArgDefined("printDims")){
+      printDims = configFile.getArg("printDims").toBoolean
+    }
 
     var outputDir:String = null
     if(graphFname.contains("/")){ //extract output directory from graph fname if applicable...
@@ -198,7 +214,12 @@ object Train {
       val patience = configFile.getArg("patience").toInt
       val lr_div = configFile.getArg("lr_div").toFloat
       val lr_min = configFile.getArg("lr_min").toFloat
+      val moment = configFile.getArg("moment").toFloat
       val epoch_bound = configFile.getArg("epoch_bound").toInt
+      val apply_lr_div_per_epoch = configFile.getArg("apply_lr_div_per_epoch").toBoolean
+      if(apply_lr_div_per_epoch){
+        println(" > Applying lr-schedule per epoch...")
+      }
       val gamma_iter_bound = configFile.getArg("gamma_iter_bound").toInt
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
@@ -215,7 +236,9 @@ object Train {
       }else if(graph.getOp("z-piece") != null){
         n_lat = graph.getOp("z-piece").dim
       }
-
+      if(printDims){
+        println(graph.theta.printDims())
+      }
       //Build optimizer given config
       var opt:Opt = null
       val climb_type = "descent"
@@ -230,7 +253,7 @@ object Train {
       }else if(optimizer.compareTo("adagrad") == 0){
         opt = new AdaGrad(lr=lr,opType=climb_type)
       }else{ //default is good ol' SGD
-        opt = new SGOpt(lr=lr,opType=climb_type)
+        opt = new SGOpt(lr=lr,moment = moment, opType=climb_type)
       }
       opt.norm_threshold = norm_rescale
 
@@ -260,8 +283,8 @@ object Train {
       var impatience = 0
       var epoch = 0
       var worst_case_update_time = 0f
-      var worst_case_prep_time = 0f
-      var worst_case_grad_time = 0f
+      //var worst_case_prep_time = 0f
+      //var worst_case_grad_time = 0f
       var numIter = 0
       while(epoch < numEpochs) {
         if(epoch == (numEpochs-1)){
@@ -271,6 +294,8 @@ object Train {
         var mark = 1
         var currNLL:Mat = bestNLL
         var currPPL:Mat = bestPPL
+        var avg_update_time = 0f
+        var numEpochIter = 0f // num iterations w/in an epoch (i.e., until sampler depleted fully)
         while (sampler.isDepleted() == false) {
           var t0 = System.nanoTime()
           /* ####################################################
@@ -280,9 +305,8 @@ object Train {
           val batch = sampler.drawMiniBatch(miniBatchSize, rng)
           val x = batch._1.asInstanceOf[Mat]
           val y = batch._2.asInstanceOf[Mat]
-          var t1 = System.nanoTime()
-          worst_case_prep_time = Math.max(worst_case_prep_time,(t1 - t0))
-
+          //var t1 = System.nanoTime()
+          //worst_case_prep_time = Math.max(worst_case_prep_time,(t1 - t0))
 
           val numSamps = y.ncols
           numSampsSeen += numSamps
@@ -306,7 +330,7 @@ object Train {
             graph.clamp(("eps-piece",eps_piece))
           }
 
-          t0 = System.nanoTime()
+          //t0 = System.nanoTime()
           /* ####################################################
            * Run inference under model given data/samples
            * ####################################################
@@ -318,10 +342,10 @@ object Train {
            * ####################################################
            */
           val grad = graph.calc_grad()
-          t1 = System.nanoTime()
-          worst_case_grad_time = Math.max(worst_case_grad_time,(t1 - t0))
+          //t1 = System.nanoTime()
+          //worst_case_grad_time = Math.max(worst_case_grad_time,(t1 - t0))
 
-          t0 = System.nanoTime()
+          //t0 = System.nanoTime()
           /* ####################################################
            * Update model given gradients
            * ####################################################
@@ -333,8 +357,11 @@ object Train {
             graph.theta.setParam("gamma",gamma)
           }
 
-          t1 = System.nanoTime()
+          var t1 = System.nanoTime()
           worst_case_update_time = Math.max(worst_case_update_time,(t1 - t0))
+          avg_update_time += (t1 - t0)
+          numEpochIter += 1
+
 
           if(sampler.isDepleted() || (errorMark > 0 && numSampsSeen >= (mark * errorMark))){ //eval model @ this point
             stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps)
@@ -347,23 +374,30 @@ object Train {
               graph.theta.saveTheta(outputDir+"best_at_epoch_"+epoch)
               impatience = Math.max(0,impatience - 1)
             }else{
-              if(lr_div > 0 && epoch_bound > 0 && lr_min > 0 && patience > 0) {
-                if(epoch >= epoch_bound) {
-                  if (impatience >= patience) { //adjust learning rate, reset impatience
-                    opt.stepSize = Math.max(lr_min, opt.stepSize / lr_div) // keeps lr from going below some bound
-                    impatience = 0
-                  } else //increment impatience
-                    impatience += 1
-                } //else haven't reach appropriate epoch to start annealing just yet...
-              }//else ignore annealing schedule, conditions are invalid
+              if(apply_lr_div_per_epoch){
+                if(sampler.isDepleted()){
+                  opt.stepSize = Math.max(lr_min, opt.stepSize / lr_div)
+                }
+              }else {
+                if (lr_div > 0 && epoch_bound > 0 && lr_min > 0 && patience > 0) {
+                  if (epoch >= epoch_bound) {
+                    if (impatience >= patience) {
+                      //adjust learning rate, reset impatience
+                      opt.stepSize = Math.max(lr_min, opt.stepSize / lr_div) // keeps lr from going below some bound
+                      impatience = 0
+                    } else //increment impatience
+                      impatience += 1
+                  } //else haven't reach appropriate epoch to start annealing just yet...
+                } //else ignore annealing schedule, conditions are invalid
+              }
             }
             if(sampler.isDepleted()){
               graph.theta.saveTheta(outputDir+"check_epoch_"+epoch)
             }
             mark += 1
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
-            logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(worst_case_prep_time * 1e-9f)
-              +","+(worst_case_grad_time * 1e-9f)+","+(worst_case_update_time * 1e-9f))
+            logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","
+              +(avg_update_time/numEpochIter * 1e-9f)+","+(worst_case_update_time * 1e-9f))
           }
           /*
           print("\r "+epoch+" > NLL = "+currNLL + " PPL = " + currPPL
@@ -373,8 +407,8 @@ object Train {
           )
            */
           print("\r " +" S.len = " +sampler.ptrs.size() + " D.len = " + sampler.depleted_ptrs.size()
-            +" P.T = "+ ((worst_case_prep_time * 1e-9f)) + " G.T = " + ((worst_case_grad_time * 1e-9f))
-            + " Up.T = "+ ((worst_case_update_time * 1e-9f)) + " s, over "+numSampsSeen + " samples"
+            +" T.avg = "+ (avg_update_time/numEpochIter * 1e-9f) + " T.worst = " + ((worst_case_update_time * 1e-9f))
+            + " s, over "+numSampsSeen + " samples"
           )
           //println("Alpha.Mu = "+graph.getStat("alpha_mu"))
           //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
@@ -413,6 +447,7 @@ object Train {
         epoch += 1
         sampler.reset()
       }
+      println(" Best.Valid.NLL = "+bestNLL + " Valid.PPL = "+bestPPL)
     }else{ //evaluation only
       val thetaFname = configFile.getArg("thetaFname")
       println(" > Loading Theta: "+thetaFname)
