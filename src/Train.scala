@@ -228,6 +228,7 @@ object Train {
       val moment = configFile.getArg("moment").toFloat
       val epoch_bound = configFile.getArg("epoch_bound").toInt
       val apply_lr_div_per_epoch = configFile.getArg("apply_lr_div_per_epoch").toBoolean
+      val train_check_mark = configFile.getArg("train_check_mark").toInt
       if(apply_lr_div_per_epoch){
         println(" > Applying lr-schedule per epoch...")
       }
@@ -235,8 +236,14 @@ object Train {
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
       validSampler.loadDocsFromLibSVMToCache()
+      println(" > Building valid-eval sample...")
       val dataChunks = Train.buildFullSample(validSampler)
       validSampler = null //toss aside this sampler for garbage collection
+      var trainChunks:ArrayList[(Mat,Mat)] = null
+      if(train_check_mark > 0){
+        println(" > Building train-eval sample ("+dataChunks.size() + ")")
+        trainChunks = Train.buildRandSample(rng,sampler,dataChunks.size())
+      }
 
       //Build Ograph given config
       val graph = archBuilder.autoBuildGraph()
@@ -373,7 +380,6 @@ object Train {
           avg_update_time += (t1 - t0)
           numEpochIter += 1
 
-
           if(sampler.isDepleted() || (errorMark > 0 && numSampsSeen >= (mark * errorMark))){ //eval model @ this point
             stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps)
             currNLL = stats(0)
@@ -413,6 +419,14 @@ object Train {
             }
             mark += 1
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
+            var trainNLL:Mat = 0f
+            if(train_check_mark > 0){
+              if((epoch + 1) % train_check_mark == 0){
+                stats = Train.evalModel(rng,graph,trainChunks,numModelSamples = numVLBSamps)
+                println("\n >> Train.NLL = "+" Train.PPL = ")
+              }
+            }
+
             logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","
               +(avg_update_time/numEpochIter * 1e-9f)+","+(worst_case_update_time * 1e-9f))
           }
@@ -470,6 +484,7 @@ object Train {
           mean_nll += nll
           ppl_s(trial) = ppl
           mean_ppl += ppl
+          println(" >> Trail "+trial + " NLL = "+nll + " PPL = "+ppl)
           trial += 1
           sampler.reset()
         }
