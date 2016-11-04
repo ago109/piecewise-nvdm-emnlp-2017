@@ -130,6 +130,49 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     }
   }
 
+  def drawFullRandDoc(rng : Random):(Mat,Mat) ={ //draws a full doc mini-batch
+    var idx = MiscUtils.genRandInt(rng,0,this.ptrs.size())
+    idx = this.ptrs.remove(idx)
+    val doc = this.cache.get(idx)
+    this.depleted_ptrs.add(idx)
+    //Get bag of words representation
+    val x_i = new IMat(doc.bagOfIdx.length,1,doc.bagOfIdx)
+    val x_v = new FMat(doc.bagOfVals.length,1,doc.bagOfVals)
+    var x_col:Mat = null
+    var x_ind:Mat = null
+    var x_val:Mat = null
+    var y_col:Mat = null
+    var y_ind:Mat = null
+    var y_val:Mat = null
+    var mb_size = 0
+    var col_ptr = 0
+    while(doc.isDepleted() == false){
+      val y_i = doc.drawTargetIdx(rng)
+      val y_v = 1f // y_i value is always a 1-hot encoding
+      if(null != x_ind){
+        x_ind = x_ind on x_i
+        x_val = x_val on x_v
+        x_col = x_col on iones(x_i.nrows,1) *@ col_ptr
+        y_ind = y_ind on y_i
+        y_val = y_val on y_v
+        y_col = y_col on col_ptr
+      }else{
+        x_ind = x_i
+        x_val = x_v
+        x_col = iones(x_i.nrows,1) *@ col_ptr
+        y_ind = y_i
+        y_val = y_v
+        y_col = col_ptr
+      }
+      col_ptr += 1
+      mb_size += 1
+    }
+    //Now compose the mini-batch (x,y) with whatever we could scrape
+    val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,mb_size)
+    val y = sparse(IMat(y_ind),IMat(y_col),FMat(y_val),this.dim,mb_size)
+    return (x,y)
+  }
+
   private def drawDocSample(rng : Random = null):(IMat,FMat,Int) ={
     var ptr_idx = 0
     if(rng != null)
@@ -137,7 +180,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     val doc = this.cache.get(this.ptrs.get(ptr_idx))
     val idx = new IMat(doc.bagOfIdx.length,1,doc.bagOfIdx)
     val vals = new FMat(doc.bagOfVals.length,1,doc.bagOfVals)
-    val target = doc.drawTargetIdx()
+    val target = doc.drawTargetIdx(rng)
     if(doc.isDepleted()){
       val ptr = this.ptrs.remove(ptr_idx)
       this.depleted_ptrs.add(ptr)

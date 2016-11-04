@@ -1,4 +1,6 @@
-import java.util.HashMap
+import java.util.{ArrayList, HashMap, Random}
+
+import YADLL.Utils.MiscUtils
 
 /**
   * Simple container to represent a bag-of-words model for a labeled document. NOTE that the toString()
@@ -8,7 +10,8 @@ import java.util.HashMap
   * Created by ago109 on 10/27/16.
   */
 class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null, var bagOfVals : Array[Float] = null) {
-  var targetPtr = 0
+  var ptrs = new ArrayList[Int]()
+  var depletedPtrs = new ArrayList[Int]()
   var docLen = 0f
 
   def getMinTermValue():Float={
@@ -31,24 +34,26 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     return max
   }
 
-  def drawTargetIdx():Int ={
-    var targ = -1
-    if(this.targetPtr < this.bagOfIdx.length) {
-      targ = this.bagOfIdx(targetPtr)
-      this.targetPtr += 1
+  def drawTargetIdx(rng : Random):Int ={
+    var idx = 0
+    if(rng != null){
+      idx = MiscUtils.genRandInt(rng,0,this.ptrs.size())
     }
-    return targ
+    idx = this.ptrs.remove(idx)
+    this.depletedPtrs.add(idx)
+    return idx
   }
 
   def isDepleted(): Boolean ={
-    if(this.targetPtr >= this.bagOfIdx.length) {
+    if(this.ptrs.size() == 0) {
       return true
     }
     return false
   }
 
   def resetTargetIdx(): Unit ={
-    this.targetPtr = 0
+    this.ptrs = this.depletedPtrs
+    this.depletedPtrs = new ArrayList[Int]()
   }
 
   /**
@@ -79,6 +84,7 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
       }
       this.bagOfIdx(ptr) = idx
       this.bagOfVals(ptr) = value
+      this.ptrs.add(idx)
       ptr += 1
     }
   }

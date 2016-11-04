@@ -26,11 +26,22 @@ object Train {
   Mat.checkMKL //<-- needed in order to check for BIDMat on cpu or gpu...
 
   //def buildDataChunks(rng : Random, sampler : DocSampler, blockSize : Int)
-  def buildDataChunks(sampler : DocSampler):ArrayList[(Mat,Mat)]={
+  def buildFullSample(sampler : DocSampler):ArrayList[(Mat,Mat)]={
     val chunks = new ArrayList[(Mat,Mat)]()
     while(sampler.isDepleted() == false){
       val batch = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)
       chunks.add(batch)
+    }
+    return chunks
+  }
+
+  def buildRandSample(rng : Random, sampler : DocSampler, numSamps : Int):ArrayList[(Mat,Mat)]={
+    val chunks = new ArrayList[(Mat,Mat)]()
+    var n = 0
+    while(n < numSamps){
+      val docBatch = sampler.drawFullRandDoc(rng)
+      chunks.add(docBatch)
+      n += 1
     }
     return chunks
   }
@@ -224,7 +235,7 @@ object Train {
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
       validSampler.loadDocsFromLibSVMToCache()
-      val dataChunks = Train.buildDataChunks(validSampler)
+      val dataChunks = Train.buildFullSample(validSampler)
       validSampler = null //toss aside this sampler for garbage collection
 
       //Build Ograph given config
@@ -376,7 +387,13 @@ object Train {
             }else{
               if(apply_lr_div_per_epoch){
                 if(sampler.isDepleted()){
-                  opt.stepSize = Math.max(lr_min, opt.stepSize / lr_div)
+                  if (impatience >= patience) {
+                    opt.stepSize = Math.max(lr_min, opt.stepSize / lr_div)
+                    println("\n  Annealed LR to "+opt.stepSize)
+                    impatience = 0
+                  }else{
+                    impatience += 1
+                  }
                 }
               }else {
                 if (lr_div > 0 && epoch_bound > 0 && lr_min > 0 && patience > 0) {
@@ -414,41 +431,19 @@ object Train {
           //println("Alpha.Sigma = "+graph.getStat("alpha_sigma"))
         }
         println("\n---------------")
-        //Checkpoint save current \Theta of model
-
         var polyak_avg:Theta = null
         if(epoch == (numEpochs-1)){
           println(" >> Estimating Polyak average over Theta...")
           polyak_avg = opt.estimatePolyakAverage()
           polyak_avg.saveTheta(outputDir+"polyak_avg")
         }
-
-        /*
-        //Eval model after an epoch
-        stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps)
-        currNLL = stats(0)
-        currPPL = exp(currNLL)
-        if(currNLL.dv.toFloat <= bestNLL.dv.toFloat) {
-          bestNLL = currNLL
-          bestPPL = currPPL
-        }else{
-          if(epoch >= epoch_bound) {
-            impatience += 1
-            if (impatience >= patience) {
-              opt.stepSize = opt.stepSize / lr_div
-              impatience = 0
-            }
-          }
-        }
-        logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","+(avg_update_time/numIter * 1e-9f))
-        println(epoch+" > NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
-        */
-
         epoch += 1
         sampler.reset()
       }
       println(" Best.Valid.NLL = "+bestNLL + " Valid.PPL = "+bestPPL)
     }else{ //evaluation only
+      val numEvalSamps = configFile.getArg("numEvalSamps").toInt // < 0 turns this off
+      val numTrials = configFile.getArg("numTrials").toInt // < 0 turns this off
       val thetaFname = configFile.getArg("thetaFname")
       println(" > Loading Theta: "+thetaFname)
       val theta = archBuilder.loadTheta(thetaFname)
@@ -458,16 +453,52 @@ object Train {
       graph.theta = theta
       graph.hardClear() //<-- clear out any gunked up data from previous sessions
       println(" > Building data-set...")
-      val dataChunks = Train.buildDataChunks(sampler)
-      println(" > Evaluating model on data-set...")
-      //graph.muteEvals(true,"L") //avoid calculating outermost-loss
-      val stats = Train.evalModel(rng,graph,dataChunks)
-      val nll = stats(0)
-      val ppl = exp(nll)
-      println(" ====== Performance ======")
-      println(" > Corpus.NLL = "+nll)
-      println(" > Corpus.PPL = "+ppl)
-      println(" > over "+ dataChunks.size() + " documents")
+      if(numEvalSamps > 0 && numTrials > 0){ //sampled evaluation ala old-school Hinton-style =)
+        var mean_nll:Mat = 0f
+        var mean_ppl:Mat = 0f
+        var stdDev_nll:Mat = 0f
+        var stdDev_ppl:Mat = 0f
+        val nll_s = new Array[Mat](numTrials)
+        val ppl_s = new Array[Mat](numTrials)
+        var trial = 0
+        while(trial < numTrials){
+          val dataChunks = Train.buildRandSample(rng,sampler,numEvalSamps)
+          val stats = Train.evalModel(rng, graph, dataChunks)
+          val nll = stats(0)
+          val ppl = exp(nll)
+          nll_s(trial) = nll
+          mean_nll += nll
+          ppl_s(trial) = ppl
+          mean_ppl += ppl
+          trial += 1
+          sampler.reset()
+        }
+        // Now calculate statistics: mean & std devs
+        mean_nll = (mean_nll/(1f * numTrials))
+        mean_ppl = (mean_ppl/(1f * numTrials))
+        var i = 0
+        while(i < nll_s.length){
+          stdDev_nll += (nll_s(i) - mean_nll) *@ (nll_s(i) - mean_nll)
+          stdDev_ppl += (ppl_s(i) - mean_ppl) *@ (ppl_s(i) - mean_ppl)
+          i += 1
+        }
+        stdDev_nll = sqrt(stdDev_nll/((1f * numTrials) - 1f))
+        stdDev_ppl = sqrt(stdDev_ppl/((1f * numTrials) - 1f))
+        println(" ====== Performance Statistics ======")
+        println(" > Avg.NLL = " + mean_nll + " +/- " + stdDev_nll)
+        println(" > Avg.PPL = " + mean_ppl + " +/- " + stdDev_ppl)
+      }else {
+        val dataChunks = Train.buildFullSample(sampler)
+        println(" > Evaluating model on data-set...")
+        //graph.muteEvals(true,"L") //avoid calculating outermost-loss
+        val stats = Train.evalModel(rng, graph, dataChunks)
+        val nll = stats(0)
+        val ppl = exp(nll)
+        println(" ====== Performance ======")
+        println(" > Corpus.NLL = " + nll)
+        println(" > Corpus.PPL = " + ppl)
+        println(" > over " + dataChunks.size() + " documents")
+      }
     }
   }
 
