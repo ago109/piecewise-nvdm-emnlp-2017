@@ -98,6 +98,7 @@ object Train {
           val eps_piece: Mat = rand(n_lat, x.ncols)
           graph.clamp(("eps-piece", eps_piece))
         }
+        graph.clamp(("N",1f)) //<-- note we don't want a mean loss this time...
 
         //Run inference & estimate posterior probabilities
         graph.eval()
@@ -110,22 +111,39 @@ object Train {
               val KL_gauss = graph.getOp("KL-gauss").per_samp_result
               val KL_piece = graph.getOp("KL-piece").per_samp_result
               KL_term = KL_gauss + KL_piece
-              KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
-              KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+              KL_gauss_s += graph.getStat("KL-gauss") //*@ numSamps
+              KL_piece_s += graph.getStat("KL-piece") //*@ numSamps
             }else{
               KL_term = 0f
             }
           } else if (graph.modelTypeName.contains("gaussian")) {
             if(null != graph.theta.getParam("gamma")) {
               KL_term = graph.getOp("KL-gauss").per_samp_result
-              KL_gauss_s += graph.getStat("KL-gauss") *@ numSamps
+              KL_gauss_s += graph.getStat("KL-gauss") //*@ numSamps
             }else{
               KL_term = 0f
             }
           } else if (graph.modelTypeName.contains("piece")) {
             if(null != graph.theta.getParam("gamma")) {
               KL_term = graph.getOp("KL-piece").per_samp_result
-              KL_piece_s += graph.getStat("KL-piece") *@ numSamps
+              KL_piece_s += graph.getStat("KL-piece") //*@ numSamps
+              /*if(KL_piece_s.dv.toFloat < 0f){
+                println("\nKL_piece_s = "+KL_piece_s)
+                println("a-post-i:")
+                println(ScalaDebugUtils.printFullMat(graph.getStat("a-post-0"))  )
+                println(ScalaDebugUtils.printFullMat(graph.getStat("a-post-1"))  )
+                println(ScalaDebugUtils.printFullMat(graph.getStat("a-post-2"))  )
+                println("K-post-i:")
+                println(ScalaDebugUtils.printFullMat(graph.getStat("K-post-0"))  )
+                println(ScalaDebugUtils.printFullMat(graph.getStat("K-post-1"))  )
+                println(ScalaDebugUtils.printFullMat(graph.getStat("K-post-2"))  )
+                println("K-prior-i:")
+                println(ScalaDebugUtils.printFullMat(graph.getStat("K-prior-0"))  )
+                println(ScalaDebugUtils.printFullMat(graph.getStat("K-prior-1"))  )
+                println(ScalaDebugUtils.printFullMat(graph.getStat("K-prior-2"))  )
+                println("K-post:\n"+ScalaDebugUtils.printFullMat(graph.getStat("K-post"))  )
+                println("K-prior:\n"+ScalaDebugUtils.printFullMat(graph.getStat("K-prior"))  )
+              }*/
             }else{
               KL_term = 0f
             }
@@ -137,7 +155,7 @@ object Train {
             log_probs = vlb //user vlb in place of intractable distribution
         } else {
           //If model is NOT variational, use its decoder's posterior
-          log_probs = graph.getStat("L") *@ numSamps
+          log_probs = graph.getStat("L") //*@ numSamps
         }
         s += 1
         if(graph.getOp("h1") != null){ //freeze most of the encoder, as it calcs doc rep only once!
@@ -287,13 +305,24 @@ object Train {
 
       val logger = new Logger(outputDir + "error_stat.log")
       logger.openLogger()
-      logger.writeStringln("Epoch, Valid.NLL, Valid.PPL, KL-Gauss, KL-Piece")
+      logger.writeStringln("Epoch, V.NLL, V.PPL, V.KL-G, V.KL-P,Avg.Up-T,Max.Up-T,T.NLL,T.PPL,T.KL_G,T.KL-P")
 
       var stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
-      logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA")
+
+      if(train_check_mark > 0) {
+        stats = Train.evalModel(rng, graph, trainChunks, numModelSamples = numVLBSamps)
+        val trainNLL = stats(0)
+        val trainPPL = exp(trainNLL)
+        val trainGKL = stats(1)
+        val trainPKL = stats(2)
+        println("     Train.NLL = " + trainNLL + " PPL = " + trainPPL + " KL.G = " + trainGKL + " KL.P = " + trainPKL)
+        logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA,NA," + trainNLL
+          + "," + trainPPL + "," + trainGKL + "," + trainPKL)
+      }else
+        logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA,NA,0,0,0,0")
 
       //Actualy train model
       var totalNumIter = 0
@@ -333,6 +362,7 @@ object Train {
           graph.hardClear()
           graph.clamp(("x-in",x))
           graph.clamp(("x-targ",y))
+          graph.clamp(("N",1f * numSamps)) //<-- note: mean loss is more stable for learning
 
           //Generate random samples for model is needed
           if(graph.modelTypeName.contains("hybrid")){
@@ -419,16 +449,25 @@ object Train {
             }
             mark += 1
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
-            var trainNLL:Mat = 0f
             if(train_check_mark > 0){
-              if((epoch + 1) % train_check_mark == 0){
+              if(sampler.isDepleted() && (epoch + 1) % train_check_mark == 0){
                 stats = Train.evalModel(rng,graph,trainChunks,numModelSamples = numVLBSamps)
-                println("\n >> Train.NLL = "+" Train.PPL = ")
+                val trainNLL = stats(0)
+                val trainPPL = exp(trainNLL)
+                val trainGKL = stats(1)
+                val trainPKL = stats(2)
+                println("   >> Train.NLL = " + trainNLL +" PPL = "+trainPPL+" KL.G = "+trainGKL+ " KL.P = "+trainPKL)
+                logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + stats(1) + "," + stats(2) + ","
+                  + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+","+trainNLL
+                  +","+trainPPL+","+trainGKL+","+trainPKL)
+              }else{
+                logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + stats(1) + "," + stats(2) + ","
+                  + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+",0,0,0,0")
               }
+            }else {
+              logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + stats(1) + "," + stats(2) + ","
+                + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+",0,0,0,0")
             }
-
-            logger.writeStringln(""+epoch+","+currNLL+","+currPPL+","+stats(1)+","+stats(2)+","
-              +(avg_update_time/numEpochIter * 1e-9f)+","+(worst_case_update_time * 1e-9f))
           }
           /*
           print("\r "+epoch+" > NLL = "+currNLL + " PPL = " + currPPL

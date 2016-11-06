@@ -41,6 +41,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       println(" >> Binarizing document vectors...")
     }
     var maxNonZeros = 0
+    var numDiscards = 0
     var line = fd.readLine()
     var s_idx = 0
     while(line != null){
@@ -62,18 +63,22 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
         }
         i += 1
       }
-      val sample = new DocSample(doc_id,this.dim)
-      sample.buildFrom(idx_val_map, applyTransform = false, binarizeVectors = this.binarizeVectors) ///DO NOT re-apply log-transform
-      maxNonZeros = Math.max(maxNonZeros,sample.bagOfVals.length)
-      this.cache.add(sample)
-      this.ptrs.add(s_idx)
-      s_idx += 1
-      print("\r " + this.ptrs.size() + " docs converted to bag-of-words...")
+      if(idx_val_map.size() > 0) {
+        val sample = new DocSample(doc_id, this.dim)
+        sample.buildFrom(idx_val_map, applyTransform = false, binarizeVectors = this.binarizeVectors) ///DO NOT re-apply log-transform
+        maxNonZeros = Math.max(maxNonZeros, sample.bagOfVals.length)
+        this.cache.add(sample)
+        this.ptrs.add(s_idx)
+        s_idx += 1
+        print("\r " + this.ptrs.size() + " docs converted to bag-of-words...")
+      }else
+        numDiscards += 1
       line = fd.readLine()
     }
     fd.close()
     println()
     println(" > Worst-case density/sparsity = "+maxNonZeros + " / "+this.dim)
+    println(" > Discared "+numDiscards + " empty docs...")
     this.totalNumDocs = this.cache.size()
   }
 
