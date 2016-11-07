@@ -150,7 +150,9 @@ object Train {
   }
 
   /**
-    * Estimate a tighter lower variational bound using iterative inference (or SGD-inference).
+    * Estimate a tighter lower variational bound using iterative inference (or SGD-inference),
+    * this can be viewed as mean-field inference to find better posterior parameters (while
+    * fixing the prior model).
     *
     * @param rng
     * @param graph
@@ -163,7 +165,7 @@ object Train {
     */
   def getIterativeBound(rng : Random, graph : OGraph, x : Mat, y : Mat, n_lat : Int,
                         numSGDInfSteps : Int = 1, lr_inf : Float = 0.1f, lex : Lexicon = null ): (Mat,Mat,Mat,Mat) ={
-    graph.muteDerivs(true,graph.theta)
+    graph.muteDerivs(true,graph.theta) //fix \Theta (no cheating! ;) )
     val L_n = x.ncols * 1f //get per-document lengths
     var log_probs: Mat = null
     var KL_gauss_s:Mat = 0f
@@ -289,8 +291,6 @@ object Train {
       println("\n  ~~> Doc.VLB = "+(sum(vlb)/L_n))
       step += 1
     }
-    if(numSGDInfSteps > 1)
-      graph.toggleFreezeOp("z",false)
 
     //Now update our evaluation across data-set w/ found validation lower bound
     if (null != log_probs) {
@@ -299,9 +299,9 @@ object Train {
       log_probs = vlb //user vlb in place of intractable distribution
     val doc_nll = (sum(log_probs) / L_n) // <-- here we normalize by document lengths
 
-    graph.unfreezeOGraph()
-    graph.hardClear()
-    graph.muteDerivs(false,graph.theta)
+    graph.unfreezeOGraph() //clears all the partial freezing done in this routine
+    graph.hardClear() //clears away gunked-up statistcs
+    graph.muteDerivs(false,graph.theta) //un-fixes \Theta
     return (log_probs,doc_nll,KL_gauss_s,KL_piece_s)
   }
 
