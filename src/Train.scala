@@ -8,6 +8,7 @@ import YADLL.FunctionGraph.Graph.OGraph
 import YADLL.FunctionGraph.Operators.SpecOps.{KL_Gauss, KL_Piece}
 import YADLL.FunctionGraph.Optimizers.{SGOpt, _}
 import YADLL.FunctionGraph.Theta
+import YADLL.Utils.MathUtils
 import YAVL.Data.Text.Lexicon.Lexicon
 import YAVL.Utils.{Logger, ScalaDebugUtils}
 
@@ -83,7 +84,7 @@ object Train {
         val eps_piece: Mat = rand(n_lat, x.ncols)
         graph.clamp(("eps-piece", eps_piece))
       }
-      graph.clamp(("N",1f)) //<-- note we don't want a mean loss this time...
+      graph.clamp(("N",L_n)) //<-- note we don't want a mean loss this time...
 
       // Infer/estimate posterior probabilities
       var vlb:Mat = null
@@ -117,7 +118,9 @@ object Train {
             KL_term = 0f
           }
         }
-        vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
+        //variational lower bound log P(X) = (ln P_Theta - KL)
+        vlb = ln(P_theta) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
+        vlb = sum(vlb *@ graph.getStat("x-targ"),1) //get individual logits for this doc
       }
 
       //Now update our evaluation across data-set w/ found validation lower bound
@@ -164,10 +167,10 @@ object Train {
     * @return
     */
   def getIterativeBound(rng : Random, graph : OGraph, x : Mat, y : Mat, n_lat : Int,
-                        numSGDInfSteps : Int = 1, lr_inf : Float = 0.1f, lex : Lexicon = null ): (Mat,Mat,Mat,Mat) ={
+                        numSGDInfSteps : Int = 1, lr_inf : Float = 0.1f, lr_norm : Float = 10f,
+                        patience : Int = 2, lex : Lexicon = null ): (Mat,Mat,Mat,Mat) ={
     graph.muteDerivs(true,graph.theta) //fix \Theta (no cheating! ;) )
     val L_n = x.ncols * 1f //get per-document lengths
-    var log_probs: Mat = null
     var KL_gauss_s:Mat = 0f
     var KL_piece_s:Mat = 0f
     //Evaluate model on x using y as the target
@@ -187,25 +190,35 @@ object Train {
       val eps_piece: Mat = rand(n_lat, x.ncols)
       graph.clamp(("eps-piece", eps_piece))
     }
-    graph.clamp(("N",1f)) //<-- note we don't want a mean loss this time...
+    graph.clamp(("N",L_n)) //<-- note we don't want a mean loss this time...
 
     // Infer/estimate posterior probabilities
+    var best_doc_nll = 10000f
+    var impatience = 0
     var vlb:Mat = null
     var step = 0
-    while(step < numSGDInfSteps) {
+    while(step < numSGDInfSteps && impatience < patience) {
+      /*
+      println("Enc(x) =\n"+graph.getStat("h1"))
+      println("mu-prior =\n"+graph.getStat("mu-prior"))
+      println("sigma-prior =\n"+graph.getStat("sigma-prior"))
+      println("mu-post =\n"+graph.getStat("mu-post"))
+      println("sigma-post =\n"+graph.getStat("sigma-post"))
+      println("z = \n"+graph.getStat("z"))
+      */
       if(step > 0){ //for every step beyond the first, we perform an iterative inference step...
         //We have to carefully freeze the right parts of the graph to do proper partial SGD-inference
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("gaussian")) {
           graph.toggleFreezeOp("mu-prior", true)
           graph.toggleFreezeOp("sigma-prior", true)
-          graph.toggleFreezeOp("mu-post", true)
-          graph.getOp("mu-post").muteEval(false) //to allow a gradient to be computed w/ respect to this
-          graph.toggleFreezeOp("sigma-post", true)
-          graph.getOp("sigma-post").muteEval(false) //to allow a gradient to be computed w/ respect to this
+          graph.toggleFreezeOp("mu", true)
+          graph.getOp("mu").muteEval(false) //to allow a gradient to be computed w/ respect to this
+          graph.toggleFreezeOp("sigma", true)
+          graph.getOp("sigma").muteEval(false) //to allow a gradient to be computed w/ respect to this
         }
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("piece")) {
           val a_prior_name = "a-prior-"
-          val a_post_name = "a-post-"
+          val a_post_name = "a-"
           var i = 0
           while(graph.getOp((a_prior_name + i)) != null){
             graph.toggleFreezeOp(a_prior_name+i,true)
@@ -217,20 +230,20 @@ object Train {
         val grad = graph.calc_grad() //get gradients for non-frozen parts of graph
         //Now update the relevant parts of the graph using SGD
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("gaussian")) {
-          val mu_post_rho = grad.getParam("mu-post")
-          val sigma_post_rho = grad.getParam("sigma-post")
-          val mu_post = graph.getStat("mu-post")
-          val sigma_post = graph.getStat("sigma-post")
-          graph.getOp("mu-post").result = mu_post - (mu_post_rho *@ lr_inf)
-          graph.getOp("sigma-post").result = sigma_post - (sigma_post_rho *@ lr_inf)
-          graph.getOp("mu-post").muteEval(true)
-          graph.getOp("sigma-post").muteEval(true)
+          val mu_post_rho = MathUtils.clip_by_norm(grad.getParam("mu"),lr_norm)
+          val sigma_post_rho = MathUtils.clip_by_norm(grad.getParam("sigma"),lr_norm)
+          val mu_post = graph.getStat("mu")
+          val sigma_post = graph.getStat("sigma")
+          graph.getOp("mu").result = mu_post - (mu_post_rho *@ lr_inf)
+          graph.getOp("sigma").result = sigma_post - (sigma_post_rho *@ lr_inf)
+          graph.getOp("mu").muteEval(true)
+          graph.getOp("sigma").muteEval(true)
         }
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("piece")) {
-          val a_post_name = "a-post-"
+          val a_post_name = "a-"
           var i = 0
           while(graph.getOp((a_post_name + i)) != null){
-            val a_post_rho = grad.getParam(a_post_name + i)
+            val a_post_rho = MathUtils.clip_by_norm(grad.getParam(a_post_name + i),lr_norm)
             val a_post = graph.getStat(a_post_name+i)
             graph.getOp(a_post_name+i).result = a_post - (a_post_rho *@ lr_inf)
             graph.getOp(a_post_name+i).muteEval(true)
@@ -238,6 +251,7 @@ object Train {
           }
         }
         //Now that posterior parameters have been update, we generate a fresh sample to re-compute z
+
         if (graph.modelTypeName.contains("hybrid")) {
           val eps_gauss: Mat = normrnd(0f, 1f, n_lat, x.ncols)
           val eps_piece: Mat = rand(n_lat, x.ncols)
@@ -255,66 +269,75 @@ object Train {
       graph.eval()
       if (graph.modelTypeName.contains("vae")) {
         //If model is variational, use lower-bound to get probs
-        val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"), 1) //P_\Theta
+        //val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"), 1) //P_\Theta
         var KL_term: Mat = null
         if (graph.modelTypeName.contains("hybrid")) {
           if (null != graph.theta.getParam("gamma")) {
             val KL_gauss = graph.getOp("KL-gauss").per_samp_result
             val KL_piece = graph.getOp("KL-piece").per_samp_result
             KL_term = KL_gauss + KL_piece
-            KL_gauss_s = graph.getStat("KL-gauss") //*@ numSamps
-            KL_piece_s = graph.getStat("KL-piece") //*@ numSamps
+            KL_gauss_s = graph.getStat("KL-gauss")
+            KL_piece_s = graph.getStat("KL-piece")
           } else {
             KL_term = 0f
           }
         } else if (graph.modelTypeName.contains("gaussian")) {
           if (null != graph.theta.getParam("gamma")) {
             KL_term = graph.getOp("KL-gauss").per_samp_result
-            KL_gauss_s = graph.getStat("KL-gauss") //*@ numSamps
+            KL_gauss_s = graph.getStat("KL-gauss")
           } else {
             KL_term = 0f
           }
         } else if (graph.modelTypeName.contains("piece")) {
           if (null != graph.theta.getParam("gamma")) {
             KL_term = graph.getOp("KL-piece").per_samp_result
-            KL_piece_s = graph.getStat("KL-piece") //*@ numSamps
+            KL_piece_s = graph.getStat("KL-piece")
           } else {
             KL_term = 0f
           }
         }
-        vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
-        val full_vlb = exp(ln(graph.getStat("x-out")) - KL_term) //get VLB for ALL WORDS IN EACH PREDICTION
-        println("-----")
-        println(extractTerms(full_vlb,y,lex))
-        println("-----")
+        //vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
+        vlb = ( ln(graph.getStat("x-out")) ) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
+        //val probs = exp(vlb)
+        //println("VLB = "+exp( sum(sum(full_vlb *@ graph.getStat("x-targ") )) / (1f * x.ncols)  ))
+        //println("-----")
+        //println(extractTerms(probs,y,lex))
+        //println("-----")
+        vlb = sum(vlb *@ graph.getStat("x-targ"),1) //get individual logits for this doc
       }
-      println("\n  ~~> Doc.VLB = "+(sum(vlb)/L_n))
+      val doc_nll = (-sum(sum(vlb))/L_n).dv.toFloat
+      if(doc_nll > best_doc_nll){
+        impatience += 1
+      }else {
+        impatience = Math.max(0,impatience-1)
+        best_doc_nll = doc_nll
+      }
+      //println("\n  ~~> Doc.NLL = "+(-sum(sum(vlb))/L_n) + " vs " )
       step += 1
     }
 
     //Now update our evaluation across data-set w/ found validation lower bound
-    if (null != log_probs) {
-      log_probs = log_probs + vlb
-    } else
-      log_probs = vlb //user vlb in place of intractable distribution
-    val doc_nll = (sum(log_probs) / L_n) // <-- here we normalize by document lengths
+    val log_probs = vlb //user vlb in place of intractable distribution
+    val doc_ll = (sum(log_probs) / L_n) // <-- here we normalize by document lengths
 
     graph.unfreezeOGraph() //clears all the partial freezing done in this routine
     graph.hardClear() //clears away gunked-up statistcs
     graph.muteDerivs(false,graph.theta) //un-fixes \Theta
-    return (log_probs,doc_nll,KL_gauss_s,KL_piece_s)
+
+    return (log_probs,doc_ll,KL_gauss_s,KL_piece_s)
   }
 
-  def extractTerms(P_theta : Mat, y : Mat, lex : Lexicon):String = {
+  def extractTerms(p : Mat, y : Mat, lex : Lexicon):String = {
     val y_stat = find3(SMat(y))
     val y_argmax = y_stat._1.asInstanceOf[IMat].t
     val y_vals = y_stat._3.asInstanceOf[FMat].t
-    val p_argmax = maxi2(P_theta)._2.asInstanceOf[IMat]
-    val p_max = maxi(P_theta)
+    val p_argmax = maxi2(p)._2.asInstanceOf[IMat]
+    val p_max = ( maxi(p) )
     println("Y.V = " + y_vals)
     println("Y.I = " + y_argmax)
-    println("P.V = "+p_argmax)
-    println("P.I = "+p_max)
+    println("P.V = "+p_max)
+
+    println("P.I = "+p_argmax)
     val y_ind = y_argmax
     val p_ind = p_argmax
     var doc = ""
@@ -347,7 +370,8 @@ object Train {
     * @return (doc.nll, loss, KL-gaussian-score, KL-piecewise-score)
     */
   def evalModel(rng : Random, graph : OGraph, dataChunks : ArrayList[(Mat,Mat)],
-                numModelSamples : Int = 10, numSGDInfSteps : Int = 1, lr_inf : Float = 0.1f, lex : Lexicon = null):Array[Mat] ={
+                numModelSamples : Int = 10, numSGDInfSteps : Int = 1, lr_inf : Float = 0.1f, lr_norm : Float = 10f,
+                patience : Int = 2, lex : Lexicon = null):Array[Mat] ={
     //Temporarily set any KL max-tricks to 0 to make bound tight...
     val KL_gauss = graph.getOp("KL-gauss")
     var gauss_trick = 0f
@@ -382,8 +406,8 @@ object Train {
       val y = batch._2.asInstanceOf[Mat]
 
       if(numSGDInfSteps > 1){
-        println(" INFER FOR DOC("+i+")")
-        val stat = Train.getIterativeBound(rng,graph,x,y,n_lat,numSGDInfSteps,lr_inf,lex)
+        //println(" INFER FOR DOC("+i+")")
+        val stat = Train.getIterativeBound(rng,graph,x,y,n_lat,numSGDInfSteps,lr_inf,lr_norm,patience,lex)
         val log_probs = stat._1.asInstanceOf[Mat]
         doc_nll += stat._2.asInstanceOf[Mat]
         KL_gauss_score += stat._3.asInstanceOf[Mat]
@@ -728,6 +752,8 @@ object Train {
       val thetaFname = configFile.getArg("thetaFname")
       val numSGDInfSteps = configFile.getArg("numSGDInfSteps").toInt
       val lr_inf = configFile.getArg("lr_inf").toFloat
+      val lr_norm = configFile.getArg("lr_norm").toFloat
+      val patience = configFile.getArg("patience").toInt
       println(" > Loading Theta: "+thetaFname)
       val theta = archBuilder.loadTheta(thetaFname)
       //Load graph given config
@@ -747,7 +773,7 @@ object Train {
         while(trial < numTrials){
           val dataChunks = Train.buildRandSample(rng,sampler,numEvalSamps)
           val stats = Train.evalModel(rng, graph, dataChunks, numModelSamples = numVLBSamps,
-            numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf,dict)
+            numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf, lr_norm = lr_norm, patience, dict)
           val nll = stats(0)
           val ppl = exp(nll)
           nll_s(trial) = nll
@@ -777,7 +803,7 @@ object Train {
         println(" > Evaluating model on data-set...")
         //graph.muteEvals(true,"L") //avoid calculating outermost-loss
         val stats = Train.evalModel(rng, graph, dataChunks, numModelSamples = numVLBSamps,
-          numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf,dict)
+          numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf, lr_norm = lr_norm, patience, dict)
         val nll = stats(0)
         val ppl = exp(nll)
         println(" ====== Performance ======")
