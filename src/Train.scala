@@ -767,8 +767,14 @@ object Train {
         var mean_ppl:Mat = 0f
         var stdDev_nll:Mat = 0f
         var stdDev_ppl:Mat = 0f
+        var mean_kl_g:Mat = 0f
+        var mean_kl_p:Mat = 0f
+        var stdDev_kl_g:Mat = 0f
+        var stdDev_kl_p:Mat = 0f
         val nll_s = new Array[Mat](numTrials)
         val ppl_s = new Array[Mat](numTrials)
+        val kl_g_s = new Array[Mat](numTrials)
+        val kl_p_s = new Array[Mat](numTrials)
         var trial = 0
         while(trial < numTrials){
           val dataChunks = Train.buildRandSample(rng,sampler,numEvalSamps)
@@ -776,10 +782,20 @@ object Train {
             numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf, lr_norm = lr_norm, patience, dict)
           val nll = stats(0)
           val ppl = exp(nll)
+          val kl_g = stats(1)
+          val kl_p = stats(2)
           nll_s(trial) = nll
           mean_nll += nll
           ppl_s(trial) = ppl
           mean_ppl += ppl
+          if(null != kl_g){
+            mean_kl_g += kl_g
+            kl_g_s(trial) = kl_g
+          }
+          if(null != kl_p){
+            mean_kl_p += kl_p
+            kl_p_s(trial) = kl_p
+          }
           println(" >> Trail "+trial + " NLL = "+nll + " PPL = "+ppl)
           trial += 1
           sampler.reset()
@@ -787,17 +803,27 @@ object Train {
         // Now calculate statistics: mean & std devs
         mean_nll = (mean_nll/(1f * numTrials))
         mean_ppl = (mean_ppl/(1f * numTrials))
+        mean_kl_g = (mean_kl_g/(1f * numTrials))
+        mean_kl_p = (mean_kl_p/(1f * numTrials))
         var i = 0
         while(i < nll_s.length){
           stdDev_nll += (nll_s(i) - mean_nll) *@ (nll_s(i) - mean_nll)
           stdDev_ppl += (ppl_s(i) - mean_ppl) *@ (ppl_s(i) - mean_ppl)
+          if(null != kl_g_s(i))
+            stdDev_kl_g += (kl_g_s(i) - mean_kl_g) *@ (kl_g_s(i) - mean_kl_g)
+          if(null != kl_p_s(i))
+            stdDev_kl_p += (kl_p_s(i) - mean_kl_p) *@ (kl_p_s(i) - mean_kl_p)
           i += 1
         }
         stdDev_nll = sqrt(stdDev_nll/((1f * numTrials) - 1f))
         stdDev_ppl = sqrt(stdDev_ppl/((1f * numTrials) - 1f))
+        stdDev_kl_g = sqrt(stdDev_kl_g/((1f * numTrials) - 1f))
+        stdDev_kl_p = sqrt(stdDev_kl_p/((1f * numTrials) - 1f))
         println(" ====== Performance Statistics ======")
         println(" > Avg.NLL = " + mean_nll + " +/- " + stdDev_nll)
         println(" > Avg.PPL = " + mean_ppl + " +/- " + stdDev_ppl)
+        println(" > Avg.NLL = " + mean_kl_g + " +/- " + stdDev_kl_g)
+        println(" > Avg.PPL = " + mean_kl_p + " +/- " + stdDev_kl_p)
       }else {
         val dataChunks = Train.buildFullSample(sampler)
         println(" > Evaluating model on data-set...")
@@ -806,9 +832,13 @@ object Train {
           numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf, lr_norm = lr_norm, patience, dict)
         val nll = stats(0)
         val ppl = exp(nll)
+        val kl_g = stats(1)
+        val kl_p = stats(2)
         println(" ====== Performance ======")
         println(" > Corpus.NLL = " + nll)
         println(" > Corpus.PPL = " + ppl)
+        println(" > Corpus.G-KL = " + kl_g)
+        println(" > Corpus.P-KL = " + kl_p)
         println(" > over " + dataChunks.size() + " documents")
       }
     }
