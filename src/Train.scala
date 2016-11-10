@@ -1,5 +1,6 @@
 //General imports
 import java.io.File
+import java.util
 import java.util.ArrayList
 import java.util.Random
 
@@ -196,6 +197,7 @@ object Train {
     var best_doc_nll = 10000f
     var impatience = 0
     var vlb:Mat = null
+    var best_states = new util.HashMap[String,Mat]()
     var step = 0
     while(step < numSGDInfSteps && impatience < patience) {
       /*
@@ -221,6 +223,10 @@ object Train {
           val a_post_name = "a-"
           var i = 0
           while(graph.getOp((a_prior_name + i)) != null){
+            println("a-prior-"+i + ":\n" +graph.getStat("a-prior-"+i))
+            println("K-prior-"+i + ":\n" +graph.getStat("K-prior-"+i))
+            println("a-post-"+i + ":\n" +graph.getStat("a-post-"+i))
+            println("K-post-"+i + ":\n" +graph.getStat("K-post-"+i))
             graph.toggleFreezeOp(a_prior_name+i,true)
             graph.toggleFreezeOp(a_post_name+i,true)
             graph.getOp(a_post_name+i).muteEval(false)//to allow a gradient to be computed w/ respect to this
@@ -228,6 +234,8 @@ object Train {
           }
         }
         val grad = graph.calc_grad() //get gradients for non-frozen parts of graph
+        //println(grad.printDims())
+        //System.exit(0)
         //Now update the relevant parts of the graph using SGD
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("gaussian")) {
           val mu_post_rho = MathUtils.clip_by_norm(grad.getParam("mu"),lr_norm)
@@ -245,18 +253,23 @@ object Train {
           while(graph.getOp((a_post_name + i)) != null){
             val a_post_rho = MathUtils.clip_by_norm(grad.getParam(a_post_name + i),lr_norm)
             val a_post = graph.getStat(a_post_name+i)
+            println("a-post-"+i+".before:\n"+a_post)
+            println("a_post_rho-"+i+":\n"+a_post_rho)
             graph.getOp(a_post_name+i).result = a_post - (a_post_rho *@ lr_inf)
             graph.getOp(a_post_name+i).muteEval(true)
+            println("a-post-"+i+".after:\n"+graph.getStat(a_post_name+i))
             i += 1
           }
         }
-        //Now that posterior parameters have been update, we generate a fresh sample to re-compute z
-
+        System.exit(0)
+        //Now that posterior parameters have been update, we generate fresh samples to re-compute z
         if (graph.modelTypeName.contains("hybrid")) {
           val eps_gauss: Mat = normrnd(0f, 1f, n_lat, x.ncols)
           val eps_piece: Mat = rand(n_lat, x.ncols)
           graph.clamp(("eps-gauss", eps_gauss))
           graph.clamp(("eps-piece", eps_piece))
+          //Debugging code...
+
         } else if (graph.modelTypeName.contains("gaussian")) {
           val eps_gauss: Mat = normrnd(0f, 1f, n_lat, x.ncols)
           graph.clamp(("eps-gauss", eps_gauss))
@@ -264,8 +277,7 @@ object Train {
           val eps_piece: Mat = rand(n_lat, x.ncols)
           graph.clamp(("eps-piece", eps_piece))
         }
-
-      }
+      } //else, do nothing...
       graph.eval()
       if (graph.modelTypeName.contains("vae")) {
         //If model is variational, use lower-bound to get probs
@@ -278,6 +290,7 @@ object Train {
             KL_term = KL_gauss + KL_piece
             KL_gauss_s = graph.getStat("KL-gauss")
             KL_piece_s = graph.getStat("KL-piece")
+            println("KL:\n"+KL_piece)
           } else {
             KL_term = 0f
           }
@@ -304,6 +317,8 @@ object Train {
         //println(extractTerms(probs,y,lex))
         //println("-----")
         vlb = sum(vlb *@ graph.getStat("x-targ"),1) //get individual logits for this doc
+      }else{
+        System.err.println(" ERROR: Model is not some form of VAE? "+graph.modelTypeName)
       }
       val doc_nll = (-sum(sum(vlb))/L_n).dv.toFloat
       if(doc_nll > best_doc_nll){
@@ -315,6 +330,7 @@ object Train {
       //println("\n  ~~> Doc.NLL = "+(-sum(sum(vlb))/L_n) + " vs " )
       step += 1
     }
+    System.exit(0)
 
     //Now update our evaluation across data-set w/ found validation lower bound
     val log_probs = vlb //user vlb in place of intractable distribution
@@ -561,13 +577,17 @@ object Train {
 
       val logger = new Logger(outputDir + "error_stat.log")
       logger.openLogger()
-      logger.writeStringln("Epoch, V.NLL, V.PPL, V.KL-G, V.KL-P,Avg.Up-T,Max.Up-T,T.NLL,T.PPL,T.KL_G,T.KL-P")
+      logger.writeStringln("Epoch, V.NLL, V.PPL, V.KL-G, V.KL-P,Avg.Up-T,Max.Up-T,T.NLL,T.PPL,T.KL_G,T.KL-P,R-norm")
 
       var stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps,
         numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
-      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2))
+      var R_norm = MathUtils.meanOfSquaredNorm(graph.theta.getParam("R"))
+
+      println("-1 > NLL = "+bestNLL + " PPL = " + bestPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2)
+        + " R.nm = "+R_norm)
+
 
       if(train_check_mark > 0) {
         stats = Train.evalModel(rng, graph, trainChunks, numModelSamples = numVLBSamps,
@@ -578,9 +598,9 @@ object Train {
         val trainPKL = stats(2)
         println("     Train.NLL = " + trainNLL + " PPL = " + trainPPL + " KL.G = " + trainGKL + " KL.P = " + trainPKL)
         logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA,NA," + trainNLL
-          + "," + trainPPL + "," + trainGKL + "," + trainPKL)
+          + "," + trainPPL + "," + trainGKL + "," + trainPKL + ","+R_norm)
       }else
-        logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA,NA,0,0,0,0")
+        logger.writeStringln("-1"+","+bestNLL+","+bestPPL+","+stats(1)+","+stats(2)+",NA,NA,0,0,0,0,"+R_norm)
 
       //Actualy train model
       var totalNumIter = 0
@@ -669,6 +689,9 @@ object Train {
           numEpochIter += 1
 
           if(sampler.isDepleted() || (errorMark > 0 && numSampsSeen >= (mark * errorMark))){ //eval model @ this point
+            //Measure norms
+            R_norm = MathUtils.meanOfSquaredNorm(graph.theta.getParam("R"))
+            //Now measure performance
             stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps,
               numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf)
             currNLL = stats(0)
@@ -707,26 +730,29 @@ object Train {
               graph.theta.saveTheta(outputDir+"check_epoch_"+epoch)
             }
             mark += 1
-            println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1) + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples")
+            println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1)
+              + " KL.P = "+stats(2) + " over "+numSampsSeen + " samples  R.nm = "+R_norm)
             if(train_check_mark > 0){
               if(sampler.isDepleted() && (epoch + 1) % train_check_mark == 0){
                 stats = Train.evalModel(rng,graph,trainChunks,numModelSamples = numVLBSamps,
                   numSGDInfSteps = numSGDInfSteps, lr_inf = lr_inf)
+                val validGKL = stats(1)
+                val validPKL = stats(2)
                 val trainNLL = stats(0)
                 val trainPPL = exp(trainNLL)
                 val trainGKL = stats(1)
                 val trainPKL = stats(2)
                 println("   >> Train.NLL = " + trainNLL +" PPL = "+trainPPL+" KL.G = "+trainGKL+ " KL.P = "+trainPKL)
-                logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + stats(1) + "," + stats(2) + ","
+                logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + validGKL + "," + validPKL + ","
                   + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+","+trainNLL
-                  +","+trainPPL+","+trainGKL+","+trainPKL)
+                  +","+trainPPL+","+trainGKL+","+trainPKL+","+R_norm)
               }else{
                 logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + stats(1) + "," + stats(2) + ","
-                  + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+",0,0,0,0")
+                  + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+",0,0,0,0,"+R_norm)
               }
             }else {
               logger.writeStringln("" + epoch + "," + currNLL + "," + currPPL + "," + stats(1) + "," + stats(2) + ","
-                + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+",0,0,0,0")
+                + (avg_update_time / numEpochIter * 1e-9f) + "," + (worst_case_update_time * 1e-9f)+",0,0,0,0,"+R_norm)
             }
           }
           print("\r " +" S.len = " +sampler.ptrs.size() + " D.len = " + sampler.depleted_ptrs.size()
@@ -751,16 +777,51 @@ object Train {
       val numTrials = configFile.getArg("numTrials").toInt // < 0 turns this off
       val thetaFname = configFile.getArg("thetaFname")
       val numSGDInfSteps = configFile.getArg("numSGDInfSteps").toInt
+      if(numSGDInfSteps > 1){
+        println(" > Using iterative inference w/ max "+numSGDInfSteps + " steps")
+      }else{
+        println(" > Using sampled inference w/ "+numVLBSamps + " draws")
+      }
       val lr_inf = configFile.getArg("lr_inf").toFloat
       val lr_norm = configFile.getArg("lr_norm").toFloat
       val patience = configFile.getArg("patience").toInt
       println(" > Loading Theta: "+thetaFname)
       val theta = archBuilder.loadTheta(thetaFname)
+
+      /*
+      val debug = configFile.getArg("debug").toBoolean
+      if(debug) {
+        val dummy = archBuilder.loadTheta(outputDir + "init.theta")
+        if (null != dummy.getParam("b-mu-prior")) {
+          theta.setParam("b-mu-prior", dummy.getParam("b-mu-prior"))
+          theta.setParam("b-sigma-prior", dummy.getParam("b-sigma-prior"))
+        }
+        if (null != dummy.getParam("b-prior-" + 0)) {
+          var i = 0
+          while (null != theta.getParam("b-prior-" + i)) {
+            theta.setParam("b-prior-" + i, dummy.getParam("b-prior-" + i))
+            i += 1
+          }
+        }
+      }
+      */
+
       //Load graph given config
       println(" > Loading OGraph: "+outputDir+graphFname)
       val graph = archBuilder.loadOGraph(outputDir+graphFname)
       graph.theta = theta
       graph.hardClear() //<-- clear out any gunked up data from previous sessions
+
+      println(" ++++ Model: " + graph.modelTypeName + " Properties ++++ ")
+      println("  # Inputs = "+graph.getOp("x-in").dim)
+      println("  # Lyr 1 Hiddens = "+graph.getOp("h0").dim)
+      if(graph.getOp("h1") != null){
+        println("  # Lyr 2 Hiddens = "+graph.getOp("h1").dim)
+      }
+      println("  # Latents = "+graph.getOp("z").dim)
+      println("  # Outputs = "+graph.getOp("x-out").dim)
+      println(" ++++++++++++++++++++++++++ ")
+
       println(" > Building data-set...")
       if(numEvalSamps > 0 && numTrials > 0){ //sampled evaluation ala old-school Hinton-style =)
         var mean_nll:Mat = 0f
@@ -796,7 +857,7 @@ object Train {
             mean_kl_p += kl_p
             kl_p_s(trial) = kl_p
           }
-          println(" >> Trail "+trial + " NLL = "+nll + " PPL = "+ppl)
+          println(" >> Trail "+trial + " NLL = "+nll + " PPL = "+ppl + " KL-G = "+kl_g + " KL-P = "+kl_p)
           trial += 1
           sampler.reset()
         }
@@ -822,8 +883,8 @@ object Train {
         println(" ====== Performance Statistics ======")
         println(" > Avg.NLL = " + mean_nll + " +/- " + stdDev_nll)
         println(" > Avg.PPL = " + mean_ppl + " +/- " + stdDev_ppl)
-        println(" > Avg.NLL = " + mean_kl_g + " +/- " + stdDev_kl_g)
-        println(" > Avg.PPL = " + mean_kl_p + " +/- " + stdDev_kl_p)
+        println(" > Avg.G-KL = " + mean_kl_g + " +/- " + stdDev_kl_g)
+        println(" > Avg.P-KL = " + mean_kl_p + " +/- " + stdDev_kl_p)
       }else {
         val dataChunks = Train.buildFullSample(sampler)
         println(" > Evaluating model on data-set...")
