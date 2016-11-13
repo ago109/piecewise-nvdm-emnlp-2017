@@ -481,7 +481,7 @@ object Train {
     */
   def generateStats(docID : IMat, n_lat : Int): (Mat,Mat,Mat,Mat) ={
     val gauss_map = new util.HashMap[Int,Mat]()
-    val doc_cnts = new util.HashMap[Int,Int]()
+    val doc_cnts = new util.HashMap[Int,Integer]() //maintains frequency of doc-id in mini-batch
     val piece_map = new util.HashMap[Int,Mat]()
     var i = 0
     while(i < docID.ncols){
@@ -509,14 +509,15 @@ object Train {
     i = 0
     while(i < docID.ncols){
       val doc_id = docID(i)
+      val id:Int = doc_cnts.get(doc_id)
       if(null != KL_correction){
         gauss_samps = gauss_samps \ gauss_map.get(doc_id)
         piece_samps = piece_samps \ piece_map.get(doc_id)
-        KL_correction = KL_correction \ doc_cnts.get(doc_id)
+        KL_correction = KL_correction \ id
       }else{
         gauss_samps = gauss_map.get(doc_id)
         piece_samps = piece_map.get(doc_id)
-        KL_correction = doc_cnts.get(doc_id)
+        KL_correction = id
       }
       i += 1
     }
