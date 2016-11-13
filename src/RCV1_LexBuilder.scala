@@ -1,6 +1,9 @@
+import java.util
 import java.util.ArrayList
 
 import YADLL.Utils.MiscUtils
+import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.Utils.Logger
 
 import scala.collection.immutable.List
 import scala.collection.JavaConversions._
@@ -14,9 +17,44 @@ import scala.collection.JavaConverters._
   */
 object RCV1_LexBuilder {
 
+  def main(args : Array[String]): Unit ={
+    val fname = args(0)
+    val idxList = args(1)
+    val outFname = args(2)
+
+    var fd = MiscUtils.loadInFile(fname)
+    var line = fd.readLine()
+    val term_idx = new util.HashMap[Int,String]()
+    while(line != null){
+      val tok = line.split("\\s+")
+      term_idx.put(tok(1).toInt,tok(0))
+      line = fd.readLine()
+    }
+    fd.close()
+
+    val out = new Logger(outFname)
+    out.openLogger()
+    out.writeStringln("Term\tFeature_Indx\tFrequency")
+    fd = MiscUtils.loadInFile(idxList)
+    line = fd.readLine()
+    var ptr_idx = 0
+    while(line != null){
+      val idx = line.replaceAll("\\s+","").toInt
+      val term = term_idx.get(idx)
+      out.writeStringln(term +"\t"+ptr_idx+"\t"+"1")
+      line = fd.readLine()
+      ptr_idx += 1
+    }
+    fd.close()
+    out.closeLogger()
+
+  }
+
+
+
+  /*
   //A Reuters record has a word, its integer in feature-space, and an inverse doc-freq score
   case class Record(var symbol:String, var idx:Int, var idf:Float)
-
   def main(args : Array[String]): Unit ={
     val fname = args(0)
     val outFname = args(1)
@@ -43,8 +81,7 @@ object RCV1_LexBuilder {
     //ll.foreach(
      // (Nothing) => 1
     //)
-
-
   }
+  */
 
 }

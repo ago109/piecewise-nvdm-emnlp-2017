@@ -178,11 +178,12 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     return (x,y)
   }
 
-  private def drawDocSample(rng : Random = null):(IMat,FMat,Int) ={
+  private def drawDocSample(rng : Random = null):(IMat,FMat,Int,Int) ={
     var ptr_idx = 0
     if(rng != null)
       ptr_idx = MiscUtils.genRandInt(rng,0,this.ptrs.size())
     val doc = this.cache.get(this.ptrs.get(ptr_idx))
+    val doc_id = doc.doc_id
     val idx = new IMat(doc.bagOfIdx.length,1,doc.bagOfIdx)
     val vals = new FMat(doc.bagOfVals.length,1,doc.bagOfVals)
     val target = doc.drawTargetIdx(rng)
@@ -192,7 +193,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       //val doc = this.cache.remove(ptr_idx) //remove depleted doc from sample-cache
       //this.depletedSamps.add(doc)
     }
-    return (idx,vals,target)
+    return (idx,vals,target,doc_id)
   }
 
   def drawFullDocBatch():(Mat,Mat) ={
@@ -247,7 +248,13 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     return null
   }
 
-  def drawMiniBatch(n: Int, rng: Random):(Mat,Mat) ={
+  /**
+    * Draws a mini-batch containing random input-output pairs across all documents in training set.
+    * @param n
+    * @param rng
+    * @return (x.mb, y.mb, doc_ID.mb)
+    */
+  def drawMiniBatch(n: Int, rng: Random):(Mat,Mat,IMat) ={
     if(this.ptrs.size() > 0){
       var x_col:Mat = null
       var x_ind:Mat = null
@@ -255,6 +262,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       var y_col:Mat = null
       var y_ind:Mat = null
       var y_val:Mat = null
+      var docID:IMat = null
       var mb_size = 0
       var col_ptr = 0
       while(this.ptrs.size() > 0 && mb_size < n) {
@@ -262,6 +270,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
         val x_i = samp._1.asInstanceOf[IMat]
         val x_v = samp._2.asInstanceOf[FMat]
         val y_i = samp._3.asInstanceOf[Int]
+        val doc_id = samp._4.asInstanceOf[Int]
         val y_v = 1f // y_i value is always a 1-hot encoding
         if(null != x_ind){
           x_ind = x_ind on x_i
@@ -270,6 +279,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
           y_ind = y_ind on y_i
           y_val = y_val on y_v
           y_col = y_col on col_ptr
+          docID = docID \ doc_id
         }else{
           x_ind = x_i
           x_val = x_v
@@ -277,6 +287,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
           y_ind = y_i
           y_val = y_v
           y_col = col_ptr
+          docID = doc_id
         }
         col_ptr += 1
         mb_size += 1
@@ -290,7 +301,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       //Now compose the mini-batch (x,y) with whatever we could scrape
       val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,mb_size)
       val y = sparse(IMat(y_ind),IMat(y_col),FMat(y_val),this.dim,mb_size)
-      return (x,y)
+      return (x,y,docID)
     }
     System.err.println(" ERROR: Cannot draw from an empty sample-cache....")
     return null
