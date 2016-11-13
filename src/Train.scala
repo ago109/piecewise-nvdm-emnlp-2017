@@ -85,6 +85,7 @@ object Train {
       graph.clamp(("eps-piece", eps_piece))
       graph.clamp(("KL-correction",KL_correction))
       graph.clamp(("N",numDocs)) //<-- note we don't want a mean loss this time...
+      graph.clamp(("logit-wghts",x)) // <-- original BOW serves as weights to model's logits
 
       // Infer/estimate posterior probabilities
       var vlb:Mat = null
@@ -199,6 +200,7 @@ object Train {
     graph.clamp(("eps-piece", eps_piece))
     graph.clamp(("KL-correction",KL_correction))
     graph.clamp(("N",numDocs)) //<-- note we don't want a mean loss this time...
+    graph.clamp(("logit-wghts",x)) // <-- original BOW serves as weights to model's logits
 
     // Infer/estimate posterior probabilities
     var best_doc_nll = 10000f
@@ -283,7 +285,6 @@ object Train {
         graph.clamp(("eps-gauss", eps_gauss))
         graph.clamp(("eps-piece", eps_piece))
         graph.clamp(("KL-correction",KL_correction))
-        graph.clamp(("N",numDocs)) //<-- note we don't want a mean loss this time...
       } //else, do nothing...
       graph.eval()
       if (graph.modelTypeName.contains("vae")) {
@@ -718,22 +719,7 @@ object Train {
           graph.clamp(("eps-gauss",eps_gauss))
           graph.clamp(("eps-piece",eps_piece))
           graph.clamp(("KL-correction",KL_correction))
-
-          //Generate random samples for model is needed
-          /*
-          if(graph.modelTypeName.contains("hybrid")){
-            val eps_gauss:Mat = normrnd(0f,1f,n_lat,x.ncols)
-            val eps_piece:Mat = rand(n_lat,x.ncols)
-            graph.clamp(("eps-gauss",eps_gauss))
-            graph.clamp(("eps-piece",eps_piece))
-          }else if(graph.modelTypeName.contains("gaussian")){
-            val eps_gauss:Mat = normrnd(0f,1f,n_lat,x.ncols)
-            graph.clamp(("eps-gauss",eps_gauss))
-          }else if(graph.modelTypeName.contains("piece")){
-            val eps_piece:Mat = rand(n_lat,x.ncols)
-            graph.clamp(("eps-piece",eps_piece))
-          }
-          */
+          graph.clamp(("logit-wghts",x)) // <-- original BOW serves as weights to model's logits
 
           //t0 = System.nanoTime()
           /* ####################################################
