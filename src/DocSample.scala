@@ -55,7 +55,7 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
   }
 
   def isDepleted(): Boolean ={
-    if(this.ptrs.size() == 0) {
+    if(this.ptrs.size() == 0 && this.cnts.size() == 0) {
       return true
     }
     return false

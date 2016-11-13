@@ -477,6 +477,7 @@ object Train {
     if(KL_piece != null){
       KL_piece.asInstanceOf[KL_Piece].maxTrickConstant = piece_trick
     }
+    //System.exit(0)
     return stats
   }
 
@@ -724,6 +725,7 @@ object Train {
           val eps_gauss = genStats._3.asInstanceOf[Mat]
           val eps_piece = genStats._4.asInstanceOf[Mat]
 
+          /*
           println(" ======= Stats ====== ")
           println(docID)
           println("numDocs = "+numDocs)
@@ -731,6 +733,7 @@ object Train {
           println("Gauss:\n"+eps_gauss)
           println("Piece:\n"+eps_piece)
           println(" =======================")
+          */
 
           //var t1 = System.nanoTime()
           //worst_case_prep_time = Math.max(worst_case_prep_time,(t1 - t0))
