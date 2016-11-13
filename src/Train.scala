@@ -34,6 +34,7 @@ object Train {
       val batch = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)
       chunks.add(batch)
     }
+    sampler.reset()
     return chunks
   }
 
@@ -45,6 +46,7 @@ object Train {
       chunks.add(docBatch)
       n += 1
     }
+    sampler.reset()
     return chunks
   }
 
@@ -300,6 +302,8 @@ object Train {
         }
         //vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
         vlb = -graph.getStat("L") //VLB is simply negative of loss function
+        //val P_theta = graph.getStat("x-out") // get P(x | z)
+        //vlb = (ln(P_theta + 1e-8f) *@ graph.getStat("x-targ") *@ x) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
         /*
         val P_theta = graph.getStat("x-out") // get P(x | z)
         vlb = (ln(P_theta) *@ graph.getStat("x-targ") *@ x) - KL_term //get VLB for ALL WORDS in doc
@@ -309,6 +313,7 @@ object Train {
         vlb = sum(vlb,1) //get individual logits for this doc
         //println("KL = "+KL_term)
         */
+        vlb = sum(vlb,1) //get individual logits for this doc
       }else{
         System.err.println(" ERROR: Model is not some form of VAE? "+graph.modelTypeName)
       }
@@ -334,6 +339,28 @@ object Train {
     graph.muteDerivs(false,graph.theta) //un-fixes \Theta
 
     return (log_probs,doc_likelihood,KL_gauss_s,KL_piece_s)
+  }
+
+  def translateMat(x : Mat, y : Mat, lex : Lexicon):String={
+    val xStat = find3(SMat(x(?,0)))
+    val yStat = find3(SMat(y))
+    val x_ind = xStat._1.asInstanceOf[IMat].t
+    val x_val = xStat._3.asInstanceOf[FMat].t
+    val y_ind = yStat._1.asInstanceOf[IMat].t
+    var out = "Doc: ["
+    var i = 0
+    while(i < x_ind.ncols){
+      out += lex.getSymbol( x_ind(0,i) ) + ".("+x_val(0,i)+") "
+      i += 1
+    }
+    out += "]\nTarg: ["
+    i = 0
+    while(i < y_ind.ncols){
+      out += lex.getSymbol( y_ind(0,i) ) + " "
+      i += 1
+    }
+    out += "]"
+    return out
   }
 
   def extractTerms(p : Mat, y : Mat, lex : Lexicon):String = { //debugging routine
@@ -414,7 +441,9 @@ object Train {
       val batch = dataChunks.get(i) // draw a whole document (i.e., set of input-output pairs for single doc)
       val x = batch._1.asInstanceOf[Mat]
       val y = batch._2.asInstanceOf[Mat]
-      val N_d = sum(sum(x))
+      val N_d = x.ncols * 1f
+      //println("N_d = "+N_d)
+      //println(Train.translateMat(x,y,lex))
 
       if(numSGDInfSteps > 1){
         //println(" INFER FOR DOC("+i+")")
@@ -472,6 +501,8 @@ object Train {
       if(null == g_s){
         g_s = normrnd(0f,1f,n_lat,1)
         p_s = rand(n_lat,1)
+        gauss_map.put(doc_id,g_s)
+        piece_map.put(doc_id,p_s)
       }
       if(doc_cnts.get(doc_id) != null){
         val currCnt = doc_cnts.get(doc_id) + 1
@@ -629,7 +660,7 @@ object Train {
       logger.writeStringln("Epoch, V.NLL, V.PPL, V.KL-G, V.KL-P,Avg.Up-T,Max.Up-T,T.NLL,T.PPL,T.KL_G,T.KL-P,R-norm")
 
       var stats = Train.evalModel(rng,graph,dataChunks,numModelSamples = numVLBSamps,
-        numSGDInfSteps = numSGDInfSteps, lr_gauss = lr_inf)
+        numSGDInfSteps = numSGDInfSteps, lr_gauss = lr_inf, lex = dict)
       var bestNLL = stats(0)
       var bestPPL = exp(bestNLL)
       var R_norm = MathUtils.meanOfSquaredNorm(graph.theta.getParam("R"))
@@ -640,7 +671,7 @@ object Train {
 
       if(train_check_mark > 0) {
         stats = Train.evalModel(rng, graph, trainChunks, numModelSamples = numVLBSamps,
-          numSGDInfSteps = numSGDInfSteps, lr_gauss = lr_inf)
+          numSGDInfSteps = numSGDInfSteps, lr_gauss = lr_inf, lex = dict)
         val trainNLL = stats(0)
         val trainPPL = exp(trainNLL)
         val trainGKL = stats(1)
@@ -679,6 +710,12 @@ object Train {
           val batch = sampler.drawMiniBatch(miniBatchSize, rng)
           val x = batch._1.asInstanceOf[Mat]
           val y = batch._2.asInstanceOf[Mat]
+          /*
+          println("\n-------------------")
+          println(Train.translateMat(x,y,dict))
+          println("\n-------------------")
+          */
+
           val docID = batch._3.asInstanceOf[IMat]
           //(numDocs,KL_correction,gauss_samps,piece_samps)
           val genStats = Train.generateStats(docID,n_lat)
@@ -686,6 +723,15 @@ object Train {
           val KL_correction = genStats._2.asInstanceOf[Mat]
           val eps_gauss = genStats._3.asInstanceOf[Mat]
           val eps_piece = genStats._4.asInstanceOf[Mat]
+
+          println(" ======= Stats ====== ")
+          println(docID)
+          println("numDocs = "+numDocs)
+          println("KL.Corr = "+KL_correction)
+          println("Gauss:\n"+eps_gauss)
+          println("Piece:\n"+eps_piece)
+          println(" =======================")
+
           //var t1 = System.nanoTime()
           //worst_case_prep_time = Math.max(worst_case_prep_time,(t1 - t0))
 
@@ -806,6 +852,7 @@ object Train {
             + " s, over "+numSampsSeen + " samples"
           )
         }
+
         println("\n---------------")
         var polyak_avg:Theta = null
         if(epoch == (numEpochs-1)){

@@ -11,7 +11,9 @@ import YADLL.Utils.MiscUtils
   */
 class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null, var bagOfVals : Array[Float] = null) {
   var ptrs = new ArrayList[Int]()
+  var cnts = new ArrayList[Int]() //maps 1-to-1 w/ ptrs
   var depletedPtrs = new ArrayList[Int]()
+  var depletedCnts = new ArrayList[Int]()
   var docLen = 0f
 
   def getMinTermValue():Float={
@@ -39,8 +41,16 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     if(rng != null){
       idx = MiscUtils.genRandInt(rng,0,this.ptrs.size())
     }
-    idx = this.ptrs.remove(idx)
-    this.depletedPtrs.add(idx)
+    var cnt = this.cnts.get(idx)
+    cnt -= 1
+    this.cnts.set(idx,cnt)
+    if(cnt <= 0){ //if count for this word has been set to 0, this word has been exhaustively sampled
+      this.cnts.remove(idx)
+      idx = this.ptrs.remove(idx)
+      this.depletedPtrs.add(idx)
+    }else{
+      idx = this.ptrs.get(idx)
+    }
     return idx
   }
 
@@ -53,6 +63,7 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
 
   def resetTargetIdx(): Unit ={
     this.ptrs = this.depletedPtrs
+    this.cnts.addAll( this.depletedCnts )
     this.depletedPtrs = new ArrayList[Int]()
   }
 
@@ -85,8 +96,10 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
       this.bagOfIdx(ptr) = idx
       this.bagOfVals(ptr) = value
       this.ptrs.add(idx)
+      this.cnts.add(value.toInt)
       ptr += 1
     }
+    this.depletedCnts.addAll( this.cnts )
   }
 
   /**
