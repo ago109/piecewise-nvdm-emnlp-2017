@@ -92,36 +92,28 @@ object Train {
       graph.eval()
       if (graph.modelTypeName.contains("vae")) {
         //If model is variational, use lower-bound to get probs
-        val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"), 1) //P_\Theta
+        val P_theta = graph.getStat("x-out") // get P(x | z)
         var KL_term: Mat = null
         if (graph.modelTypeName.contains("hybrid")) {
-          if (null != graph.theta.getParam("gamma")) {
-            val KL_gauss = graph.getOp("KL-gauss").per_samp_result
-            val KL_piece = graph.getOp("KL-piece").per_samp_result
-            KL_term = KL_gauss + KL_piece
-            KL_gauss_s += graph.getStat("KL-gauss") //*@ numSamps
-            KL_piece_s += graph.getStat("KL-piece") //*@ numSamps
-          } else {
-            KL_term = 0f
-          }
+          val KL_gauss = graph.getOp("KL-gauss").per_samp_result
+          val KL_piece = graph.getOp("KL-piece").per_samp_result
+          KL_term = KL_gauss + KL_piece
+          KL_gauss_s += graph.getStat("KL-gauss")
+          KL_piece_s += graph.getStat("KL-piece")
         } else if (graph.modelTypeName.contains("gaussian")) {
-          if (null != graph.theta.getParam("gamma")) {
-            KL_term = graph.getOp("KL-gauss").per_samp_result
-            KL_gauss_s += graph.getStat("KL-gauss") //*@ numSamps
-          } else {
-            KL_term = 0f
-          }
+          KL_term = graph.getOp("KL-gauss").per_samp_result
+          KL_gauss_s += graph.getStat("KL-gauss") //*@ numSamps
         } else if (graph.modelTypeName.contains("piece")) {
-          if (null != graph.theta.getParam("gamma")) {
-            KL_term = graph.getOp("KL-piece").per_samp_result
-            KL_piece_s += graph.getStat("KL-piece") //*@ numSamps
-          } else {
-            KL_term = 0f
-          }
+          KL_term = graph.getOp("KL-piece").per_samp_result
+          KL_piece_s += graph.getStat("KL-piece")
         }
-        //variational lower bound log P(X) = (ln P_Theta - KL)
-        vlb = ln(P_theta) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
-        vlb = sum(vlb *@ graph.getStat("x-targ"),1) //get individual logits for this doc
+        //variational lower bound log P(X) = (ln P_Theta - KL) = ln(P(x|z)) * word_cnts - KL
+        //vlb = (ln(P_theta + 1e-8f) *@ graph.getStat("x-targ") *@ x) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
+        //vlb = sum(vlb,1) //get individual logits for this doc
+        //println(" ONLINE.VLB = "+sum(vlb))
+        //println(" LOSS.VLB = "+(-graph.getStat("L")))
+        //System.exit(0)
+        vlb = -graph.getStat("L") //VLB is simply negative of loss function
       }
 
       //Now update our evaluation across data-set w/ found validation lower bound
@@ -137,8 +129,8 @@ object Train {
         graph.toggleFreezeOp("h0",true)
       }
     }
-    log_probs = log_probs / (numModelSamples * 1f) // get E[VLB]
-    val doc_nll = (sum(log_probs) / numDocs) // <-- here we normalize by document lengths
+    log_probs = log_probs / (numModelSamples * 1f) // compute Monte Carlo estimate of E[VLB]
+    val doc_likelihood = (sum(log_probs) / numDocs)
     KL_gauss_s = (KL_gauss_s / (numModelSamples * 1f))
     KL_piece_s = (KL_piece_s / (numModelSamples * 1f))
 
@@ -149,7 +141,7 @@ object Train {
     }
     graph.hardClear()
 
-    return (log_probs,doc_nll,KL_gauss_s,KL_piece_s)
+    return (log_probs,doc_likelihood,KL_gauss_s,KL_piece_s)
 
   }
 
@@ -285,6 +277,8 @@ object Train {
         graph.clamp(("eps-gauss", eps_gauss))
         graph.clamp(("eps-piece", eps_piece))
         graph.clamp(("KL-correction",KL_correction))
+        graph.clamp(("N",numDocs)) //<-- note we don't want a mean loss this time...
+        graph.clamp(("logit-wghts",x)) // <-- original BOW serves as weights to model's logits
       } //else, do nothing...
       graph.eval()
       if (graph.modelTypeName.contains("vae")) {
@@ -292,46 +286,33 @@ object Train {
         //val P_theta = sum(graph.getStat("x-out") *@ graph.getStat("x-targ"), 1) //P_\Theta
         var KL_term: Mat = null
         if (graph.modelTypeName.contains("hybrid")) {
-          if (null != graph.theta.getParam("gamma")) {
-            val KL_gauss = graph.getOp("KL-gauss").per_samp_result
-            val KL_piece = graph.getOp("KL-piece").per_samp_result
-            KL_term = KL_gauss + KL_piece
-            KL_gauss_s = graph.getStat("KL-gauss")
-            KL_piece_s = graph.getStat("KL-piece")
-            //println("KL:\n"+KL_piece)
-          } else {
-            KL_term = 0f
-          }
+          val KL_gauss = graph.getOp("KL-gauss").per_samp_result
+          val KL_piece = graph.getOp("KL-piece").per_samp_result
+          KL_term = KL_gauss + KL_piece
+          KL_gauss_s = graph.getStat("KL-gauss")
+          KL_piece_s = graph.getStat("KL-piece")
         } else if (graph.modelTypeName.contains("gaussian")) {
-          if (null != graph.theta.getParam("gamma")) {
-            KL_term = graph.getOp("KL-gauss").per_samp_result
-            KL_gauss_s = graph.getStat("KL-gauss")
-          } else {
-            KL_term = 0f
-          }
+          KL_term = graph.getOp("KL-gauss").per_samp_result
+          KL_gauss_s = graph.getStat("KL-gauss")
         } else if (graph.modelTypeName.contains("piece")) {
-          if (null != graph.theta.getParam("gamma")) {
-            KL_term = graph.getOp("KL-piece").per_samp_result
-            KL_piece_s = graph.getStat("KL-piece")
-          } else {
-            KL_term = 0f
-          }
+          KL_term = graph.getOp("KL-piece").per_samp_result
+          KL_piece_s = graph.getStat("KL-piece")
         }
         //vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
-        vlb = ( ln(graph.getStat("x-out")) ) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
-        val probs = graph.getStat("x-out")
-        println("SUM = " + sum(probs,1))
-        println("SUM.P(x|z) = " + sum(graph.getStat("x-out"),1))
-        println("KL = "+KL_term)
-        //println("VLB = "+exp( sum(sum(full_vlb *@ graph.getStat("x-targ") )) / (1f * x.ncols)  ))
-        println("-----")
-        println(extractTerms(probs,y,lex))
-        println("-----")
-        vlb = sum(vlb *@ graph.getStat("x-targ"),1) //get individual logits for this doc
+        vlb = -graph.getStat("L") //VLB is simply negative of loss function
+        /*
+        val P_theta = graph.getStat("x-out") // get P(x | z)
+        vlb = (ln(P_theta) *@ graph.getStat("x-targ") *@ x) - KL_term //get VLB for ALL WORDS in doc
+        //println("-----")
+        //println(extractTerms(vlb,y,lex))
+        //println("-----")
+        vlb = sum(vlb,1) //get individual logits for this doc
+        //println("KL = "+KL_term)
+        */
       }else{
         System.err.println(" ERROR: Model is not some form of VAE? "+graph.modelTypeName)
       }
-      val doc_nll = (-sum(sum(vlb))/numDocs).dv.toFloat
+      val doc_nll = (-sum(sum(vlb))/numDocs).dv.toFloat //estimate doc NLL
       if(doc_nll > best_doc_nll){
         impatience += 1
       }else {
@@ -346,16 +327,16 @@ object Train {
 
     //Now update our evaluation across data-set w/ found validation lower bound
     val log_probs = best_vlb //user vlb in place of intractable distribution
-    val doc_ll = (sum(log_probs) / numDocs) // <-- here we normalize by document lengths
+    val doc_likelihood = (sum(log_probs) / numDocs) // <-- here we normalize by document lengths
 
     graph.unfreezeOGraph() //clears all the partial freezing done in this routine
     graph.hardClear() //clears away gunked-up statistcs
     graph.muteDerivs(false,graph.theta) //un-fixes \Theta
 
-    return (log_probs,doc_ll,KL_gauss_s,KL_piece_s)
+    return (log_probs,doc_likelihood,KL_gauss_s,KL_piece_s)
   }
 
-  def extractTerms(p : Mat, y : Mat, lex : Lexicon):String = {
+  def extractTerms(p : Mat, y : Mat, lex : Lexicon):String = { //debugging routine
     val y_stat = find3(SMat(y))
     val y_argmax = y_stat._1.asInstanceOf[IMat].t
     val y_vals = y_stat._3.asInstanceOf[FMat].t
@@ -441,13 +422,13 @@ object Train {
           lr_piece,gauss_norm,piece_norm,
           patience,lex, debug = debug)
         val log_probs = stat._1.asInstanceOf[Mat]
-        total_nll += (stat._2.asInstanceOf[Mat] / N_d)
+        total_nll += (stat._2.asInstanceOf[Mat] / N_d) //normalize likelihood by doc length
         total_KL_gauss += stat._3.asInstanceOf[Mat]
         total_KL_piece += stat._4.asInstanceOf[Mat]
       }else{
         val stat = Train.getSampledBound(rng,graph,x,y,n_lat,numModelSamples, debug = debug)
         val log_probs = stat._1.asInstanceOf[Mat]
-        total_nll += (stat._2.asInstanceOf[Mat] / N_d)
+        total_nll += (stat._2.asInstanceOf[Mat] / N_d) //normalize likelihood by doc length
         total_KL_gauss += stat._3.asInstanceOf[Mat]
         total_KL_piece += stat._4.asInstanceOf[Mat]
       }
@@ -456,7 +437,7 @@ object Train {
       i += 1
     }
     println()
-    stats(0) = -total_nll / (1f * D)
+    stats(0) = -total_nll / (1f * D) //normalize over total number of docs
     stats(1) = total_KL_gauss /// (1f * numDocs)
     stats(2) = total_KL_piece  /// (1f * numDocs)
 
@@ -467,7 +448,6 @@ object Train {
     if(KL_piece != null){
       KL_piece.asInstanceOf[KL_Piece].maxTrickConstant = piece_trick
     }
-
     return stats
   }
 
@@ -699,7 +679,7 @@ object Train {
           val batch = sampler.drawMiniBatch(miniBatchSize, rng)
           val x = batch._1.asInstanceOf[Mat]
           val y = batch._2.asInstanceOf[Mat]
-          val docID = batch._2.asInstanceOf[IMat]
+          val docID = batch._3.asInstanceOf[IMat]
           //(numDocs,KL_correction,gauss_samps,piece_samps)
           val genStats = Train.generateStats(docID,n_lat)
           val numDocs = genStats._1.asInstanceOf[Mat]
