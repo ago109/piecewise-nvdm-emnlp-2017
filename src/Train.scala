@@ -345,7 +345,7 @@ object Train {
 
     //Now update our evaluation across data-set w/ found validation lower bound
     val log_probs = best_vlb //user vlb in place of intractable distribution
-    val doc_ll = (sum(log_probs) / L_n) // <-- here we normalize by document lengths
+    val doc_ll = (sum(log_probs) / numDocs) // <-- here we normalize by document lengths
 
     graph.unfreezeOGraph() //clears all the partial freezing done in this routine
     graph.hardClear() //clears away gunked-up statistcs
