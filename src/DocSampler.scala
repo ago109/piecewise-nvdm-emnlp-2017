@@ -124,7 +124,11 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
   }
 
   def reset(): Unit ={
-    this.ptrs = this.depleted_ptrs
+    if(this.ptrs.size() == 0)
+      this.ptrs = this.depleted_ptrs
+    else{ // a simple pre-caution to make sure un-sampled ptrs are NOT overriden...
+      this.ptrs.addAll( this.depleted_ptrs )
+    }
     this.depleted_ptrs = new ArrayList[Int]()
     //this.cache = this.depletedSamps
     //this.depletedSamps = new ArrayList[DocSample]()
