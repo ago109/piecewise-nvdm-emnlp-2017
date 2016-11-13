@@ -399,7 +399,7 @@ object Train {
   def evalModel(rng : Random, graph : OGraph, dataChunks : ArrayList[(Mat,Mat)],
                 numModelSamples : Int = 10, numSGDInfSteps : Int = 1, lr_gauss : Float = 0.1f, lr_piece: Float = 0.1f,
                 gauss_norm : Float = 1f, piece_norm : Float = 1f,
-                patience : Int = 2, lex : Lexicon = null, debug : Boolean = false):Array[Mat] ={
+                patience : Int = 2, lex : Lexicon = null, undoLogTF : Boolean = false, debug : Boolean = false):Array[Mat] ={
     //Temporarily set any KL max-tricks to 0 to make bound tight...
     val KL_gauss = graph.getOp("KL-gauss")
     var gauss_trick = 0f
@@ -415,11 +415,11 @@ object Train {
     }
 
     graph.hardClear()
-    val numDocs = dataChunks.size() * 1f
+    val D = dataChunks.size() * 1f //total number documents in evaluation set
     val stats =new Array[Mat](3)
-    var doc_nll:Mat = 0f
-    var KL_gauss_score:Mat = 0f
-    var KL_piece_score:Mat = 0f
+    var total_nll:Mat = 0f
+    var total_KL_gauss:Mat = 0f
+    var total_KL_piece:Mat = 0f
     var numDocsSeen = 0
     var n_lat = graph.getOp("z").dim //we need to know # of latent variables in model
     if(graph.getOp("z-gaussian") != null){
@@ -429,9 +429,10 @@ object Train {
     }
     var i = 0
     while(i < dataChunks.size()){
-      val batch = dataChunks.get(i)
+      val batch = dataChunks.get(i) // draw a whole document (i.e., set of input-output pairs for single doc)
       val x = batch._1.asInstanceOf[Mat]
       val y = batch._2.asInstanceOf[Mat]
+      val N_d = sum(sum(x))
 
       if(numSGDInfSteps > 1){
         //println(" INFER FOR DOC("+i+")")
@@ -439,24 +440,24 @@ object Train {
           lr_piece,gauss_norm,piece_norm,
           patience,lex, debug = debug)
         val log_probs = stat._1.asInstanceOf[Mat]
-        doc_nll += stat._2.asInstanceOf[Mat]
-        KL_gauss_score += stat._3.asInstanceOf[Mat]
-        KL_piece_score += stat._4.asInstanceOf[Mat]
+        total_nll += (stat._2.asInstanceOf[Mat] / N_d)
+        total_KL_gauss += stat._3.asInstanceOf[Mat]
+        total_KL_piece += stat._4.asInstanceOf[Mat]
       }else{
         val stat = Train.getSampledBound(rng,graph,x,y,n_lat,numModelSamples, debug = debug)
         val log_probs = stat._1.asInstanceOf[Mat]
-        doc_nll += stat._2.asInstanceOf[Mat]
-        KL_gauss_score += stat._3.asInstanceOf[Mat]
-        KL_piece_score += stat._4.asInstanceOf[Mat]
+        total_nll += (stat._2.asInstanceOf[Mat] / N_d)
+        total_KL_gauss += stat._3.asInstanceOf[Mat]
+        total_KL_piece += stat._4.asInstanceOf[Mat]
       }
       numDocsSeen += 1
       print("\r > "+numDocsSeen + " docs seen...")
       i += 1
     }
     println()
-    stats(0) = -doc_nll / (1f * numDocs)
-    stats(1) = KL_gauss_score /// (1f * numDocs)
-    stats(2) = KL_piece_score  /// (1f * numDocs)
+    stats(0) = -total_nll / (1f * D)
+    stats(1) = total_KL_gauss /// (1f * numDocs)
+    stats(2) = total_KL_piece  /// (1f * numDocs)
 
     //Turn back on any KL-max tricks...
     if(KL_gauss != null){
@@ -478,9 +479,9 @@ object Train {
     * @return (numDocs, KL-correction, gaussian-samps, piece-samps)
     */
   def generateStats(docID : IMat, n_lat : Int): (Mat,Mat,Mat,Mat) ={
-    var gauss_map = new util.HashMap[Int,Mat]()
-    var doc_cnts = new util.HashMap[Int,Int]()
-    var piece_map = new util.HashMap[Int,Mat]()
+    val gauss_map = new util.HashMap[Int,Mat]()
+    val doc_cnts = new util.HashMap[Int,Int]()
+    val piece_map = new util.HashMap[Int,Mat]()
     var i = 0
     while(i < docID.ncols){
       val doc_id = docID(i)
