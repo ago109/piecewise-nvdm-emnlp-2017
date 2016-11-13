@@ -311,6 +311,18 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     return null
   }
 
+  def printPtrStats():String = {
+    var out = ""
+    var i = 0
+    while(i < this.ptrs.size()){
+      out += " === Doc " + i + "  ===\n"
+      out += this.cache.get(ptrs.get(i)).printPtrStats() + "\n"
+      out += " =====================\n"
+      i += 1
+    }
+    return out
+  }
+
   //Code to start a dynamic sample-cache policy
   /*
   var ptrs = new ArrayList[Int]()

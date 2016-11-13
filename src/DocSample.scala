@@ -14,6 +14,7 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
   var cnts = new ArrayList[Int]() //maps 1-to-1 w/ ptrs
   var depletedPtrs = new ArrayList[Int]()
   var depletedCnts = new ArrayList[Int]()
+  var backUpCnts = new ArrayList[Int]() //maintains an "immutable record" of original count for ptr @ i
   var docLen = 0f
 
   def getMinTermValue():Float={
@@ -45,9 +46,11 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     cnt -= 1
     this.cnts.set(idx,cnt)
     if(cnt <= 0){ //if count for this word has been set to 0, this word has been exhaustively sampled
-      this.cnts.remove(idx)
-      idx = this.ptrs.remove(idx)
+      this.cnts.remove(idx) //remove depleted count
+      val orig_cnt = this.backUpCnts.remove(idx) //remove back-up cont
+      idx = this.ptrs.remove(idx) //remove depleted pointer
       this.depletedPtrs.add(idx)
+      this.depletedCnts.add(orig_cnt)
     }else{
       idx = this.ptrs.get(idx)
     }
@@ -62,9 +65,18 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
   }
 
   def resetTargetIdx(): Unit ={
-    this.ptrs = this.depletedPtrs
-    this.cnts.addAll( this.depletedCnts )
+    if(this.ptrs.size() == 0) {
+      this.ptrs = this.depletedPtrs
+      this.cnts = this.depletedCnts
+    }else{
+      this.ptrs.addAll( this.depletedPtrs )
+      this.cnts.addAll(this.depletedCnts)
+    }
     this.depletedPtrs = new ArrayList[Int]()
+    this.depletedCnts = new ArrayList[Int]()
+    //Set up immutable/back-up copy of cnts to new order of cnts
+    this.backUpCnts = new ArrayList[Int]()
+    this.backUpCnts.addAll(this.cnts)
   }
 
   /**
@@ -99,11 +111,12 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
       this.cnts.add(value.toInt)
       ptr += 1
     }
-    this.depletedCnts.addAll( this.cnts )
+    this.backUpCnts.addAll( this.cnts )
   }
 
   /**
     * A special routine to ensure print-out of 1-based indices (like proper libsvm format).
+    *
     * @return
     */
   def toLibSVMString():String ={
@@ -114,6 +127,16 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
       i += 1
     }
     out = out.substring(0,out.length()-1) //nix trailing space...
+    return out
+  }
+
+  def printPtrStats():String = {
+    var out = ""
+    var i = 0
+    while(i < this.ptrs.size()){
+      out += this.ptrs.get(i) + " Cnt = "+this.cnts.get(i) + " Bck.Cnt = "+this.cnts.get(i) + "\n"
+      i += 1
+    }
     return out
   }
 
