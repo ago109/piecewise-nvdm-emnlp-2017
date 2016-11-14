@@ -36,7 +36,7 @@ object EmbeddingAnalyzer {
   def main(args : Array[String]): Unit = {
     if (args.length < 7) {
       System.err.println("usage: [/path/to/theta] [decoder_name] [/path/to/dict] [top_k_symbols]" +
-        " [metric] [performRot?] ?[transposeDecoder?]")
+        " [performRot?] [querySymbol] [metric] ?[transposeDecoder?]")
       return
     }
     val archBuilder = new BuildArch()
@@ -74,12 +74,13 @@ object EmbeddingAnalyzer {
 
     //Create an array of scores (1 for each embedding in decoder)
     //val scores = new Array[Float](decoder.ncols)
+    println(" > Scoring terms based on decoder embeddings...")
     var scores:Mat = null
     var i = 0
     while(i < decoder.ncols){
       val target = decoder(?,i)
       var score = -1f
-      if(metric.compareTo("cosineSim") == 0){
+      if(metric.compareTo("cosine") == 0){
         score = EmbeddingAnalyzer.cosineSim(query,target)
       }else{ //else, Euclidean distance
         score = EmbeddingAnalyzer.euclideanDist(query,target)
@@ -91,9 +92,10 @@ object EmbeddingAnalyzer {
       }
       i += 1
     }
+    println(" > Sorting scores based on metric: "+metric)
     //We now have a column-vector of scores, these need to be sorted
     var sortedInd:IMat = null
-    if(metric.compareTo("cosineSim") == 0){
+    if(metric.compareTo("cosine") == 0){
       val stat = sortdown2(scores) //highest/most positive values at top
       scores = stat._1.asInstanceOf[Mat]
       sortedInd = stat._2.asInstanceOf[IMat]
@@ -102,6 +104,7 @@ object EmbeddingAnalyzer {
       scores = stat._1.asInstanceOf[Mat]
       sortedInd = stat._2.asInstanceOf[IMat]
     }
+    println(" > Extracting ranked "+metric+" scores...")
     var out = ""
     var k_i = 0
     var addOne = false
@@ -120,7 +123,7 @@ object EmbeddingAnalyzer {
       val idx = sortedInd(k_i,0)
       val score = FMat(scores)(k_i,0)
       val symbol = dict.getSymbol(idx)
-      out += symbol + " : " + score
+      out += symbol + " : " + score + "\n"
     }
     println(" ==== Query Results for "+querySymbol + " ==== \n\n" +out)
   }
