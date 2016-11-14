@@ -36,7 +36,7 @@ object EmbeddingAnalyzer {
   def main(args : Array[String]): Unit = {
     if (args.length < 7) {
       System.err.println("usage: [/path/to/theta] [decoder_name] [/path/to/dict] [top_k_symbols]" +
-        " [metric] [performRot?] ?[useMax?] ?[transposeDecoder?]")
+        " [metric] [performRot?] ?[transposeDecoder?]")
       return
     }
     val archBuilder = new BuildArch()
@@ -48,13 +48,9 @@ object EmbeddingAnalyzer {
     val querySymbol = args(5)
     val query_idx = dict.getIndex(querySymbol)
     val metric = args(6)
-    var useMax = true
-    if(args.length >= 8){
-      useMax = args(7).toBoolean
-    }
     var transposeDecoder = false
-    if(args.length >= 9){
-      transposeDecoder = args(8).toBoolean
+    if(args.length >= 8){
+      transposeDecoder = args(7).toBoolean
     }
 
     //Begin analysis
@@ -65,7 +61,7 @@ object EmbeddingAnalyzer {
     }
     if(performRot){
       println(" > Rotating decocder...")
-      var A = decoder * decoder.t
+      val A = decoder * decoder.t
       val stat = seig(A,true)
       val eigens = stat._2.asInstanceOf[Mat] //get eigen-vectors
       decoder =eigens * decoder //rotate decoder
@@ -97,11 +93,11 @@ object EmbeddingAnalyzer {
     }
     //We now have a column-vector of scores, these need to be sorted
     var sortedInd:IMat = null
-    if(useMax){
+    if(metric.compareTo("cosineSim") == 0){
       val stat = sortdown2(scores) //highest/most positive values at top
       scores = stat._1.asInstanceOf[Mat]
       sortedInd = stat._2.asInstanceOf[IMat]
-    }else{
+    }else{ //Euclidean distance
       val stat = sort2(scores) //lowest values at top
       scores = stat._1.asInstanceOf[Mat]
       sortedInd = stat._2.asInstanceOf[IMat]
