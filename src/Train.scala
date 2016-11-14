@@ -175,6 +175,11 @@ object Train {
   def getIterativeBound(rng : Random, graph : OGraph, x : Mat, y : Mat, n_lat : Int,
                         numSGDInfSteps : Int = 1, lr_gauss : Float = 0.1f, lr_piece : Float = 0.1f, gauss_norm : Float = 1f,
                         piece_norm : Float = 1f, patience : Int = 2, lex : Lexicon = null, debug : Boolean = false): (Mat,Mat,Mat,Mat) ={
+    if(debug) {
+      println("---------------------------")
+      println("Doc-START")
+      println("---------------------------")
+    }
     graph.muteDerivs(true,graph.theta) //fix \Theta (no cheating! ;) )
     //val L_n = x.ncols * 1f //get per-document lengths
     var KL_gauss_s:Mat = 0f
@@ -223,17 +228,19 @@ object Train {
         }
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("piece")) {
           val a_prior_name = "a-prior-"
-          val a_post_name = "a-"
+          val a_post_name = "a-post-"
           var i = 0
           while(graph.getOp((a_prior_name + i)) != null){
+            /*
             if(debug){
               println("---------------------------")
               println("a-prior-"+i + ":\n" +getMinMax(graph.getStat("a-prior-"+i)))
-              println("a-post"+i + ":\n" +getMinMax(graph.getStat("a-"+i)))
+              println("a-post"+i + ":\n" +getMinMax(graph.getStat("a-post"+i)))
               println("K-prior-"+i + ":\n" +getMinMax(graph.getStat("K-prior-"+i)))
               println("K-post-"+i + ":\n" +getMinMax(graph.getStat("K-post-"+i)))
               println("---------------------------")
             }
+            */
             graph.toggleFreezeOp(a_prior_name+i,true)
             graph.toggleFreezeOp(a_post_name+i,true)
             graph.getOp(a_post_name+i).muteEval(false)//to allow a gradient to be computed w/ respect to this
@@ -255,10 +262,11 @@ object Train {
           graph.getOp("sigma").muteEval(true)
         }
         if (graph.modelTypeName.contains("hybrid") || graph.modelTypeName.contains("piece")) {
-          val a_post_name = "a-"
+          val a_post_name = "a-post-"
           var i = 0
           while(graph.getOp((a_post_name + i)) != null){
             val a_post_rho = MathUtils.clip_by_norm(grad.getParam(a_post_name + i),piece_norm)
+            /*
             if(debug) {
               println("---------------------------")
               println("a-prior-"+i+":\n"+MathUtils.clip_by_norm(grad.getParam("a-prior-"+ i),piece_norm))
@@ -266,6 +274,7 @@ object Train {
               println("a-post"+i + ".rho:\n" +a_post_rho)
               println("---------------------------")
             }
+            */
             val a_post = graph.getStat(a_post_name+i)
             //println("a-post-"+i+".before:\n"+a_post)
             //println("a_post_rho-"+i+":\n"+a_post_rho)
@@ -301,18 +310,14 @@ object Train {
           KL_piece_s = graph.getStat("KL-piece")
         }
         //vlb = ln(P_theta) - KL_term //variational lower bound log P(X) = (ln P_Theta - KL)
+        if(debug) {
+          println("KL-term = "+sum(sum(KL_term)))
+          //var logits = (ln( graph.getStat("x-out") + 1e-8f) - sum(sum(KL_term))) *@ graph.getStat("x-targ")
+          val nll = (-(sum(sum(ln( graph.getStat("x-out") + 1e-8f) *@ graph.getStat("x-targ"))) - sum(sum(KL_term))))
+          //println("logits =\n"+logits)
+          println("  NLL(Doc) = " + nll) //exp of log of sums = exp of log of products
+        }
         vlb = -graph.getStat("L") //VLB is simply negative of loss function
-        //val P_theta = graph.getStat("x-out") // get P(x | z)
-        //vlb = (ln(P_theta + 1e-8f) *@ graph.getStat("x-targ") *@ x) - KL_term //get VLB for ALL WORDS IN EACH PREDICTION
-        /*
-        val P_theta = graph.getStat("x-out") // get P(x | z)
-        vlb = (ln(P_theta) *@ graph.getStat("x-targ") *@ x) - KL_term //get VLB for ALL WORDS in doc
-        //println("-----")
-        //println(extractTerms(vlb,y,lex))
-        //println("-----")
-        vlb = sum(vlb,1) //get individual logits for this doc
-        //println("KL = "+KL_term)
-        */
         vlb = sum(vlb,1) //get individual logits for this doc
       }else{
         System.err.println(" ERROR: Model is not some form of VAE? "+graph.modelTypeName)
@@ -338,6 +343,11 @@ object Train {
     graph.hardClear() //clears away gunked-up statistcs
     graph.muteDerivs(false,graph.theta) //un-fixes \Theta
 
+    if(debug) {
+      println("---------------------------")
+      println("Doc-END")
+      println("---------------------------")
+    }
     return (log_probs,doc_likelihood,KL_gauss_s,KL_piece_s)
   }
 
