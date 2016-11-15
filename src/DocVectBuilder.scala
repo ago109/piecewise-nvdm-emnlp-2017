@@ -188,10 +188,9 @@ object DocVectBuilder {
           best_vlb = vlb
           optimal_Z = graph.getStat("z")
         }
-        println("\n  ~~> Doc.NLL = "+(-sum(sum(vlb))/numDocs) + " G-KL = "+KL_gauss_s + " P-KL = "+KL_piece_s )
+        //println("\n  ~~> Doc.NLL = "+(-sum(sum(vlb))/numDocs) + " G-KL = "+KL_gauss_s + " P-KL = "+KL_piece_s )
         step += 1
       }
-      System.exit(0)
       if(null == optimal_Z){
         optimal_Z = graph.getStat("z")
       }
