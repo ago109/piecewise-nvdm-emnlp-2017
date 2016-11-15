@@ -200,6 +200,16 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     return (idx,vals,target,doc_id)
   }
 
+  def getDocBOWAt(ptr_idx : Int):Mat={
+    val doc = this.cache.get(this.ptrs.get(ptr_idx))
+    val bow = doc.getBOWVec()
+    return bow
+  }
+
+  def getDocAt(ptr_idx : Int):DocSample={
+    return this.cache.get(this.ptrs.get(ptr_idx))
+  }
+
   /**
     *
     * @return (x,y,doc_id/lab_id)

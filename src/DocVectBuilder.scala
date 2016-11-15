@@ -54,13 +54,21 @@ object DocVectBuilder {
     val graph = archBuilder.loadOGraph(graphFname)
     graph.theta = theta
     graph.hardClear() //<-- clear out any gunked up data from previous sessions
-    val n_lat = graph.getOp("z").dim
+
+    //we need to know # of latent variables in model
+    var n_lat = graph.getOp("z").dim
+    if(graph.getOp("z-gaussian") != null){
+      n_lat = graph.getOp("z-gaussian").dim
+    }else if(graph.getOp("z-piece") != null){
+      n_lat = graph.getOp("z-piece").dim
+    }
 
     val fd_dat = new Logger(outputFname)
     fd_dat.openLogger()
     val fd_lab = new Logger(outputLabFname)
     fd_lab.openLogger()
 
+    var numDocSeen = 0
     //Begin potential iterative inference procedure to find optimal latents per document
     while(sampler.isDepleted() == false) {
       val doc = sampler.drawFullDocBatch()
@@ -205,7 +213,10 @@ object DocVectBuilder {
       fd_dat.writeStringln(Z_str)
       //Store mapped label to disk as well
       fd_lab.writeStringln(""+id)
+      numDocSeen += 1
+      print("\r > "+numDocSeen + " doc-vectors inferred...")
     }
+    println()
     fd_dat.closeLogger()
     fd_lab.closeLogger()
 

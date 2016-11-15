@@ -709,6 +709,7 @@ object Train {
         if(epoch == (numEpochs-1)){
           opt.setPolyakAverage()
         }
+        var bestEpochNLL:Mat = 10000f
         var numSampsSeen = 0 // # samples seen w/in an epoch
         var mark = 1
         var currNLL:Mat = bestNLL
@@ -834,8 +835,9 @@ object Train {
                 } //else ignore annealing schedule, conditions are invalid
               }
             }
-            if(sampler.isDepleted()){
-              graph.theta.saveTheta(outputDir+"check_epoch_"+epoch)
+            if(currNLL.dv.toFloat <= bestEpochNLL.dv.toFloat){
+              graph.theta.saveTheta(outputDir+"check_epoch_"+epoch) //save a running check-point of model
+              bestEpochNLL = currNLL //save best within-epoch NLL
             }
             mark += 1
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1)

@@ -1,6 +1,12 @@
 import java.util.{ArrayList, HashMap, Random}
 
 import YADLL.Utils.MiscUtils
+import BIDMat.{FMat, _}
+import BIDMat.MatFunctions._
+import BIDMat.SciFunctions._
+import java.util.Random
+
+import scala.runtime.RichInt
 
 /**
   * Simple container to represent a bag-of-words model for a labeled document. NOTE that the toString()
@@ -128,6 +134,20 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     }
     out = out.substring(0,out.length()-1) //nix trailing space...
     return out
+  }
+
+  /**
+    * Extract raw bag-of-words sparse vector from this document (i.e., the x of (x,y))
+    * @return
+    */
+  def getBOWVec():Mat={
+    //Generate x (or BOW)
+    val x_ind = new IMat(1,this.bagOfIdx.length,this.bagOfIdx)
+    val x_val = new FMat(1,this.bagOfVals.length,this.bagOfVals)
+    val x_col_i = (new RichInt(0) until this.bagOfIdx.length).toArray[Int]
+    val x_col = new IMat(1,x_col_i.length,x_col_i)
+    val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,1)
+    return x
   }
 
   def printPtrStats():String = {
