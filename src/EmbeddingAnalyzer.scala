@@ -52,6 +52,10 @@ object EmbeddingAnalyzer {
     if(args.length >= 8){
       transposeDecoder = args(7).toBoolean
     }
+    var showScores = false
+    if(args.length >= 9){
+      showScores = args(8).toBoolean
+    }
 
     //Begin analysis
     var decoder = theta.getParam(decoderName) //terms are along the rows, latents along the columns
@@ -113,7 +117,10 @@ object EmbeddingAnalyzer {
       val score = FMat(scores)(k_i,0)
       val symbol = dict.getSymbol(idx)
       if(symbol.compareTo(querySymbol) != 0){
-        out += symbol + " : " + score
+        if(showScores)
+          out += symbol + " : " + score + "\n"
+        else
+          out += symbol + "\n"
       }else{
         addOne = true //switch flag, since we have to add an extra score item to skip same word eval...
       }
@@ -123,7 +130,10 @@ object EmbeddingAnalyzer {
       val idx = sortedInd(k_i,0)
       val score = FMat(scores)(k_i,0)
       val symbol = dict.getSymbol(idx)
-      out += symbol + " : " + score + "\n"
+      if(showScores)
+        out += symbol + " : " + score + "\n"
+      else
+        out += symbol + "\n"
     }
     println(" ==== Query Results for "+querySymbol + " ==== \n\n" +out)
   }
