@@ -200,7 +200,11 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
     return (idx,vals,target,doc_id)
   }
 
-  def drawFullDocBatch():(Mat,Mat) ={
+  /**
+    *
+    * @return (x,y,doc_id/lab_id)
+    */
+  def drawFullDocBatch():(Mat,Mat,Int) ={
     if(this.ptrs.size() > 0){
       var x_col:Mat = null
       var x_ind:Mat = null
@@ -212,11 +216,15 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       var col_ptr = 0
       var cache_delta = 0
       val orig_cache_size = this.ptrs.size()
+      var doc_id = -1
       while(this.ptrs.size() > 0 && cache_delta == 0) {
         val samp = this.drawDocSample()
         val x_i = samp._1.asInstanceOf[IMat]
         val x_v = samp._2.asInstanceOf[FMat]
         val y_i = samp._3.asInstanceOf[Int]
+        if(doc_id < 0){
+          doc_id = samp._4.asInstanceOf[Int]
+        }
         val y_v = 1f // y_i value is always a 1-hot encoding
         if(null != x_ind){
           x_ind = x_ind on x_i
@@ -246,7 +254,7 @@ class DocSampler(var fname : String, var dict : Lexicon, var cacheSize : Int = 1
       //Now compose the mini-batch (x,y) with whatever we could scrape
       val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,mb_size)
       val y = sparse(IMat(y_ind),IMat(y_col),FMat(y_val),this.dim,mb_size)
-      return (x,y)
+      return (x,y,doc_id)
     }
     System.err.println(" ERROR: Cannot draw from an empty sample-cache....")
     return null

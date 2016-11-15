@@ -135,6 +135,6 @@ object EmbeddingAnalyzer {
       else
         out += symbol + "\n"
     }
-    println(" ==== Query Results for "+querySymbol + " ==== \n\n" +out)
+    println(" ==== Query Results for "+querySymbol + " ==== \n" +out)
   }
 }

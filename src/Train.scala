@@ -31,7 +31,8 @@ object Train {
   def buildFullSample(sampler : DocSampler):ArrayList[(Mat,Mat)]={
     val chunks = new ArrayList[(Mat,Mat)]()
     while(sampler.isDepleted() == false){
-      val batch = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)
+      val stat = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)
+      val batch = (stat._1.asInstanceOf[Mat],stat._2.asInstanceOf[Mat])
       chunks.add(batch)
     }
     sampler.reset()
@@ -190,8 +191,8 @@ object Train {
 
     //Generate statistics for model
     //One latent variable copied N times
-    val eps_gauss: Mat = ones(n_lat,x.ncols) *@ normrnd(0f, 1f, n_lat, 1)
-    val eps_piece: Mat = ones(n_lat,x.ncols) *@ rand(n_lat, 1)
+    var eps_gauss: Mat = ones(n_lat,x.ncols) *@ normrnd(0f, 1f, n_lat, 1)
+    var eps_piece: Mat = ones(n_lat,x.ncols) *@ rand(n_lat, 1)
     val numDocs = 1 //<-- all of the predictions are for a single document
     val KL_correction:Mat = ones(1,x.ncols) *@ x.ncols //correct for KL being copied equal to # of predictions
 
@@ -285,6 +286,8 @@ object Train {
           }
         }
         //Now that posterior parameters have been update, we generate fresh samples to re-compute z
+        eps_gauss = ones(n_lat,x.ncols) *@ normrnd(0f, 1f, n_lat, 1)
+        eps_piece = ones(n_lat,x.ncols) *@ rand(n_lat, 1)
         graph.clamp(("eps-gauss", eps_gauss))
         graph.clamp(("eps-piece", eps_piece))
         graph.clamp(("KL-correction",KL_correction))
