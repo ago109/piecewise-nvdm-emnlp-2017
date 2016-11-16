@@ -6,6 +6,8 @@ import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._
 import java.util.Random
 
+import YAVL.Utils.ScalaDebugUtils
+
 import scala.runtime.RichInt
 
 /**
@@ -144,9 +146,11 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
     //Generate x (or BOW)
     val x_ind = new IMat(1,this.bagOfIdx.length,this.bagOfIdx)
     val x_val = new FMat(1,this.bagOfVals.length,this.bagOfVals)
-    val x_col_i = (new RichInt(0) until this.bagOfIdx.length).toArray[Int]
-    val x_col = new IMat(1,x_col_i.length,x_col_i)
+    //val x_col_i = (new RichInt(0) until this.bagOfIdx.length).toArray[Int]
+    //val x_col = new IMat(1,x_col_i.length,x_col_i)
+    val x_col = izeros(1,this.bagOfIdx.length)
     val x = sparse(IMat(x_ind),IMat(x_col),FMat(x_val),this.dim,1)
+    //println(ScalaDebugUtils.printFullMat(x))
     return x
   }
 

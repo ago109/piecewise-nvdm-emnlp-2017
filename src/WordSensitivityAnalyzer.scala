@@ -50,6 +50,12 @@ object WordSensitivityAnalyzer {
     val thetaFname = configFile.getArg("thetaFname")
     val labelFname = configFile.getArg("labelFname")
     val top_k = configFile.getArg("top_k").toInt
+    var lookAtInputDeriv = configFile.getArg("lookAtInputDeriv").toBoolean
+    if(lookAtInputDeriv){
+      println(" > Building scores based on deriv of KL wrt input units")
+    }else{
+      println(" > Building scores based on L2 norms of KL wrt input embeddings")
+    }
 
     //Load in labels (1 per doc)
     val fd_lab = MiscUtils.loadInFile(labelFname)
@@ -90,16 +96,15 @@ object WordSensitivityAnalyzer {
     var lab_select = readInt()
     println()
     //TODO: user select a label
-    while(lab_select >= 0){ //infinite loop unless user inputs -1 (or < 0, for exit)
+    while(lab_select != -1){ //infinite loop unless user inputs -1
       var docIdx = WordSensitivityAnalyzer.getDocPtr(lab_select,labs)
-      if(docIdx < 0){
-        println(" > No more docs of type = "+lab_select)
-      }else{
+      if(docIdx >= 0){
         val doc = sampler.getDocAt(docIdx)
         val x = doc.getBOWVec()
         //val x_i = sparse(w_idx,0,1f,doc.dim,1) //create a useless y or target
         val x_0 = sparse(0,0,1f,doc.dim,1) //create a useless y or target
-        graph.getOp("x-in").muteDerivCalc(flag = false) //we want the derivative w/ respect to word inputs
+        if(lookAtInputDeriv)
+          graph.getOp("x-in").muteDerivCalc(flag = false) //we want the derivative w/ respect to word inputs
         graph.clamp(("x-in", x))
         graph.clamp(("x-targ", x_0))
         //Generate random sample for model as needed
@@ -114,53 +119,111 @@ object WordSensitivityAnalyzer {
         graph.clamp(("N",numDocs)) //<-- note we don't want a mean loss this time...
         graph.eval() //do inference to gather statistics
         val KL_gauss_op = graph.getOp("KL-gauss")
+        val KL_piece_op = graph.getOp("KL-piece")
         if(KL_gauss_op != null){
+          val trickBak = KL_gauss_op.asInstanceOf[KL_Gauss].maxTrickConstant
+          KL_gauss_op.asInstanceOf[KL_Gauss].maxTrickConstant = 0f
           println(" Top("+top_k+") Most Sensitive to G-KL:")
-          //Block gradient flow at the latent variable z!
+          //Block gradient flow at the latent variable e
           graph.blockDerivFlow(graph.getOp("z"))
-          graph.blockDerivFlow(KL_gauss_op)
+          if(KL_piece_op != null)
+            graph.blockDerivFlow(KL_piece_op)
           val nabla = graph.calc_grad()
-          var word_grad = nabla.getParam("x-in") //get derivative of each term w/ respect to input words
+          var wordScores:Mat = null
+          if(lookAtInputDeriv){
+            wordScores = nabla.getParam("x-in") //get derivative of each term w/ respect to input words
+          }else{
+            val d_e = nabla.getParam("W0-enc") //deriv wrt embeddings (i.e., slices in 1st encoder matrix)
+            //println(ScalaDebugUtils.printFullMat(d_e))
+            wordScores = sqrt( sum(d_e *@ d_e,1) ).t //L2 norm of each embedding deriv
+          }
+          //Only nab the scores for the words actually in the document
+          var tmp:Mat = null
+          var d = 0
+          while(d < doc.bagOfIdx.length){
+            val w_i = doc.bagOfIdx(d)
+            if(null != tmp){
+              tmp = tmp on wordScores(w_i,?)
+            }else{
+              tmp = wordScores(w_i,?)
+            }
+            d += 1
+          }
+          wordScores = tmp
+
           //Now build a ranked list based on gradients for each word in document
-          val stat = sortdown2(word_grad) //highest/most positive values at top
-          word_grad = stat._1.asInstanceOf[Mat]
+          val stat = sortdown2(wordScores) //highest/most positive values at top
+          wordScores = stat._1.asInstanceOf[Mat]
           val sortedInd = stat._2.asInstanceOf[IMat]
           var  i = 0
-          while(i < top_k){
-            val score = FMat(word_grad)(i,0)
+          while(i < top_k && i < wordScores.nrows){
+            val score = FMat(wordScores)(i,0)
             val idx = sortedInd(i,0)
             println(dict.getSymbol(idx) + " = "+score)
             i += 1
           }
 
           graph.unblockDerivs()
+          KL_gauss_op.asInstanceOf[KL_Gauss].maxTrickConstant = trickBak
         }
-        val KL_piece_op = graph.getOp("KL-piece")
         if(KL_piece_op != null){
+          val trickBak = KL_piece_op.asInstanceOf[KL_Piece].maxTrickConstant
+          KL_piece_op.asInstanceOf[KL_Piece].maxTrickConstant = 0f
           println(" Top("+top_k+") Most Sensitive to P-KL:")
           //Block gradient flow at the latent variable z!
           graph.blockDerivFlow(graph.getOp("z"))
-          graph.blockDerivFlow(KL_piece_op)
+          if(KL_gauss_op != null)
+            graph.blockDerivFlow(KL_gauss_op)
           val nabla = graph.calc_grad()
           //Now build a ranked list based on gradients for each word in document
-          var word_grad = nabla.getParam("x-in") //get derivative of each term w/ respect to input words
+          var wordScores:Mat = null
+          if(lookAtInputDeriv){
+            wordScores = nabla.getParam("x-in") //get derivative of each term w/ respect to input words
+          }else{
+            val d_e = nabla.getParam("W0-enc") //deriv wrt embeddings (i.e., slices in 1st encoder matrix)
+            wordScores = sqrt( sum(d_e *@ d_e,1) ).t //L2 norm of each embedding deriv
+          }
+
+          //Only nab the scores for the words actually in the document
+          var tmp:Mat = null
+          var d = 0
+          while(d < doc.bagOfIdx.length){
+            val w_i = doc.bagOfIdx(d)
+            if(null != tmp){
+              tmp = tmp on wordScores(w_i,?)
+            }else{
+              tmp = wordScores(w_i,?)
+            }
+            d += 1
+          }
+          wordScores = tmp
+
           //Now build a ranked list based on gradients for each word in document
-          val stat = sortdown2(word_grad) //highest/most positive values at top
-          word_grad = stat._1.asInstanceOf[Mat]
+          val stat = sortdown2(wordScores) //highest/most positive values at top
+          wordScores = stat._1.asInstanceOf[Mat]
           val sortedInd = stat._2.asInstanceOf[IMat]
           var  i = 0
-          while(i < top_k){
-            val score = FMat(word_grad)(i,0)
+          while(i < top_k && i < wordScores.nrows){
+            val score = FMat(wordScores)(i,0)
             val idx = sortedInd(i,0)
             println(dict.getSymbol(idx) + " = "+score)
             i += 1
           }
           graph.unblockDerivs()
+          KL_piece_op.asInstanceOf[KL_Piece].maxTrickConstant = trickBak
         }
       }
+      graph.hardClear()
       print(" > Enter a label-index (-1 to quit): ")
       lab_select = readInt()
       println()
+      if(lab_select == -2){
+        if(lookAtInputDeriv)
+          lookAtInputDeriv = false
+        else
+          lookAtInputDeriv = true
+        println(" > Switching <lookAtInputDeriv> to "+lookAtInputDeriv)
+      }
     }
   }
 
@@ -183,8 +246,10 @@ object WordSensitivityAnalyzer {
       }
       i += 1
     }
-    if(labValue >= 0){
+    if(idx >= 0){
       list.remove(idx)
+    }else{
+      labValue = -1
     }
     return labValue
   }
