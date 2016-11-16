@@ -6,6 +6,7 @@ import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._
 import java.util.Random
 
+import YAVL.Data.Text.Lexicon.Lexicon
 import YAVL.Utils.ScalaDebugUtils
 
 import scala.runtime.RichInt
@@ -161,6 +162,18 @@ class DocSample(var doc_id: Int, var dim : Int, var bagOfIdx : Array[Int] = null
       out += this.ptrs.get(i) + " Cnt = "+this.cnts.get(i) + " Bck.Cnt = "+this.cnts.get(i) + "\n"
       i += 1
     }
+    return out
+  }
+
+  def toDocString(dict : Lexicon):String ={
+    var out = "" + this.doc_id + " ["
+    var i = 0
+    while(i < this.bagOfIdx.length){
+      out += ""+dict.getSymbol( this.bagOfIdx(i) )+ ":" + this.bagOfVals(i)+" "
+      i += 1
+    }
+    out = out.substring(0,out.length()-1) //nix trailing space...
+    out += "]"
     return out
   }
 
