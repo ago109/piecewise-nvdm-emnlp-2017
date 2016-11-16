@@ -32,6 +32,7 @@ import YADLL.Utils.ConfigFile
   * Created by ago109 on 11/15/16.
   */
 object WordSensitivityAnalyzer {
+  Mat.checkMKL //<-- needed in order to check for BIDMat on cpu or gpu...
 
   //blockDerivFlow
   def main(args : Array[String]): Unit ={
@@ -41,6 +42,8 @@ object WordSensitivityAnalyzer {
     }
     //Extract arguments
     val configFile = new ConfigFile(args(0)) //grab configuration from local disk
+    val seed = configFile.getArg("seed").toInt
+    setseed(seed) //controls determinism of overall simulation
     val dataFname = configFile.getArg("dataFname")
     val dictFname = configFile.getArg("dictFname")
     val graphFname = configFile.getArg("graphFname")
@@ -114,7 +117,6 @@ object WordSensitivityAnalyzer {
         if(KL_gauss_op != null){
           println(" Top("+top_k+") Most Sensitive to G-KL:")
           //Block gradient flow at the latent variable z!
-          graph.blockDerivFlow(graph.getOp("KL-gauss"))
           graph.blockDerivFlow(graph.getOp("z"))
           graph.blockDerivFlow(KL_gauss_op)
           val nabla = graph.calc_grad()
@@ -137,7 +139,6 @@ object WordSensitivityAnalyzer {
         if(KL_piece_op != null){
           println(" Top("+top_k+") Most Sensitive to P-KL:")
           //Block gradient flow at the latent variable z!
-          graph.blockDerivFlow(graph.getOp("KL-piece"))
           graph.blockDerivFlow(graph.getOp("z"))
           graph.blockDerivFlow(KL_piece_op)
           val nabla = graph.calc_grad()
@@ -177,6 +178,7 @@ object WordSensitivityAnalyzer {
     while(i < list.size() && stayInLoop){
       labValue = list.get(i)
       if(labValue == lab){
+        idx = i //record index of removed doc/record
         stayInLoop = false
       }
       i += 1
