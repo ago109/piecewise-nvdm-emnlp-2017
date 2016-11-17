@@ -168,6 +168,9 @@ object WordSensitivityAnalyzer {
       n_lat = graph.getOp("z-piece").dim
     }
 
+    //This map records how many times each words occurs in a top-k ranking for G-KL
+    var gKl_sens = new HashMap[String,Int]()
+    var pKl_sens = new HashMap[String,Int]()
     var lab_select = -4
     var manualDoc:DocSample = null
     while(lab_select != -1 || manualDoc != null){ //infinite loop unless user inputs -1 or enters a manual doc
@@ -357,13 +360,15 @@ object WordSensitivityAnalyzer {
             output += " "
           ptr += 1
         }
-        output += "\n"
-        ptr = 0
-        while(ptr < pp.length){
-          output += pp(ptr)
-          if(ptr != pp.length-1)
-            output += " "
-          ptr += 1
+        if(KL_piece_op != null) {
+          output += "\n"
+          ptr = 0
+          while (ptr < pp.length) {
+            output += pp(ptr)
+            if (ptr != pp.length - 1)
+              output += " "
+            ptr += 1
+          }
         }
         println("\n"+println(output))
         if(manualDoc != null)

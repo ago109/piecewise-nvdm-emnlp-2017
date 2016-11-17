@@ -326,12 +326,19 @@ object Train {
         System.err.println(" ERROR: Model is not some form of VAE? "+graph.modelTypeName)
       }
       val doc_nll = (-sum(sum(vlb))/numDocs).dv.toFloat //estimate doc NLL
-      if(doc_nll > best_doc_nll){
-        impatience += 1
-      }else {
-        impatience = Math.max(0,impatience-1)
-        best_doc_nll = doc_nll
+      if(null == best_vlb){
         best_vlb = vlb
+      }
+      if(doc_nll.isNaN() == false) {
+        if (doc_nll > best_doc_nll) {
+          impatience += 1
+        } else {
+          impatience = Math.max(0, impatience - 1)
+          best_doc_nll = doc_nll
+          best_vlb = vlb
+        }
+      }else{
+        impatience = patience + 1
       }
       if(debug)
         println("\n  ~~> Doc.NLL = "+(-sum(sum(vlb))/numDocs) + " G-KL = "+KL_gauss_s + " P-KL = "+KL_piece_s )
