@@ -534,15 +534,15 @@ object Train {
     i = 0
     while(i < docID.ncols){
       val doc_id = docID(i)
-      val id:Int = doc_cnts.get(doc_id)
+      val id_cnt:Float = 1f * doc_cnts.get(doc_id)
       if(null != KL_correction){
         gauss_samps = gauss_samps \ gauss_map.get(doc_id)
         piece_samps = piece_samps \ piece_map.get(doc_id)
-        KL_correction = KL_correction \ id
+        KL_correction = KL_correction \ id_cnt
       }else{
         gauss_samps = gauss_map.get(doc_id)
         piece_samps = piece_map.get(doc_id)
-        KL_correction = id
+        KL_correction = id_cnt
       }
       i += 1
     }
