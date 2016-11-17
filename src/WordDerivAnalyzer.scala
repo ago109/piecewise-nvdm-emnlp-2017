@@ -53,6 +53,7 @@ object WordDerivAnalyzer {
     val graphFname = configFile.getArg("graphFname")
     val thetaFname = configFile.getArg("thetaFname")
     val labelFname = configFile.getArg("labelFname")
+    val outFname = configFile.getArg("outFname")
     val top_k = configFile.getArg("top_k").toInt
     var lookAtInputDeriv = configFile.getArg("lookAtInputDeriv").toBoolean
     if(lookAtInputDeriv){
@@ -262,8 +263,12 @@ object WordDerivAnalyzer {
       }
       graph.hardClear()
       d += 1
+      print("\r > "+d + " docs processed...")
     }
-
+    println()
+    println(" > Writing output to : "+outFname)
+    val fd = new Logger(outFname)
+    fd.openLogger()
     var out = ""
     val iter = (gKl_sens.keySet()).iterator()
     var ptr = 0
@@ -277,8 +282,10 @@ object WordDerivAnalyzer {
       }else{
         out += "0\n"
       }
-
+      fd.writeStringln(out)
+      out = ""
     }
+    fd.closeLogger()
 
   }
 
