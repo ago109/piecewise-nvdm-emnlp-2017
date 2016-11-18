@@ -269,18 +269,18 @@ object WordDerivAnalyzer {
     println(" > Writing output to : "+outFname)
     val fd = new Logger(outFname)
     fd.openLogger()
+    fd.writeString("Word G-KL P-KL")
     var out = ""
     val iter = (gKl_sens.keySet()).iterator()
-    var ptr = 0
     while (iter.hasNext) {
       val word = iter.next()
-      var g_kl_score = gKl_sens.get(word)
-      var p_kl_socre = pKl_sens.get(word)
-      out += word + " " + g_kl_score
+      val g_kl_score = gKl_sens.get(word)
+      val p_kl_socre = pKl_sens.get(word)
+      out += word + " " + g_kl_score + " "
       if(p_kl_socre != null){
-        out += p_kl_socre + "\n"
+        out += p_kl_socre + ""
       }else{
-        out += "0\n"
+        out += "0"
       }
       fd.writeStringln(out)
       out = ""
