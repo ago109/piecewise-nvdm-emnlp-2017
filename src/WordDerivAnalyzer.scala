@@ -8,12 +8,13 @@ import scala.io.StdIn.{readInt, readLine}
 import BIDMat.FMat
 import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._
-import YADLL.FunctionGraph.Graph.OGraph
-import YADLL.FunctionGraph.Operators.SpecOps.{KL_Gauss, KL_Piece}
-import YADLL.FunctionGraph.Optimizers.{SGOpt, _}
-import YADLL.FunctionGraph.Theta
+import YADLL.OperatorGraph.Graph.OGraph
+import YADLL.OperatorGraph.Operators.SpecOps.{KL_Gauss, KL_Piece}
+import YADLL.OperatorGraph.Optimizers.{SGOpt, _}
+import YADLL.OperatorGraph.Theta
+import YADLL.OperatorGraph.Operators.SpecOps.KL_Piece
 import YADLL.Utils.{MathUtils, MiscUtils}
-import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.TextStream.Dict.Lexicon
 import YAVL.Utils.{Logger, ScalaDebugUtils}
 
 import scala.runtime.{RichInt, RichInt$}
@@ -22,7 +23,7 @@ import BIDMat.{CMat, CSMat, DMat, Dict, FMat, GIMat, GMat, GSMat, HMat, IDict, I
 import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._
 //Imports from the library YADLL v0.7
-import YADLL.FunctionGraph.BuildArch
+import YADLL.OperatorGraph.BuildArch
 import YADLL.Utils.ConfigFile
 
 /**

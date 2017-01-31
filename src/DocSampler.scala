@@ -6,9 +6,7 @@ import BIDMat.SciFunctions._
 import java.util.Random
 
 import YADLL.Utils.MiscUtils
-import YAVL.Data.Text.Doc
-import YAVL.Data.Text.Lexicon.Lexicon
-import YAVL.DataStreams.Text.DocStream
+import YAVL.TextStream.Dict.Lexicon
 import YAVL.Utils.ScalaDebugUtils
 
 /**

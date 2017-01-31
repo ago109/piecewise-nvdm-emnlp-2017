@@ -1,7 +1,7 @@
 import BIDMat.SciFunctions._
-import YADLL.FunctionGraph.{BuildArch, Theta}
+import YADLL.OperatorGraph.{BuildArch, Theta}
 import YADLL.Utils.{ConfigFile, MathUtils}
-import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.TextStream.Dict.Lexicon
 import YAVL.Utils.Logger
 
 import scala.runtime.RichInt

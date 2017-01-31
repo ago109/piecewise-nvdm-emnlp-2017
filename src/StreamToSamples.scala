@@ -2,9 +2,8 @@ import java.util.{ArrayList, Random}
 import java.util.HashMap
 
 import YADLL.Utils.MiscUtils
-import YAVL.Data.Text.Doc
-import YAVL.Data.Text.Lexicon.Lexicon
-import YAVL.DataStreams.Text.DocStream
+import YAVL.TextStream.Dict.Lexicon
+import YAVL.TextStream.{Doc, TextStream}
 import YAVL.Utils.Logger
 
 /**
@@ -52,9 +51,9 @@ object StreamToSamples {
     println(" > Reading stream...")
     //1st-pass gather pointers
     val samples = new ArrayList[DocSample]()
-    val tmpStream = new DocStream(fname)
-    tmpStream.setTokenType(tokenType)
-    tmpStream.lowerCaseDocs(false)
+    val tmpStream = new TextStream(fname)
+    //tmpStream.setTokenType(tokenType)
+    //tmpStream.lowerCaseDocs(false)
     var numDocsDiscarded = 0
     var smallestDocLen = 10000f
     var largestDocLen = 0f
@@ -62,6 +61,9 @@ object StreamToSamples {
     var minTermValue = 10000f
     var idx = 0
     var doc: Doc = tmpStream.nextDoc()
+
+    //FIXME: do we need to update this given new changes to YAVL??
+    /*
     while (!tmpStream.atEndOfStream() || doc != null) {
       if(doc != null) {
         val idx_val_map = new HashMap[Integer, java.lang.Float]()
@@ -116,6 +118,7 @@ object StreamToSamples {
       StreamToSamples.saveSamplesToDisk(ftrain,samples)
     }
 
+    */
   }
 
 

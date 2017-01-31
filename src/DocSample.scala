@@ -6,7 +6,7 @@ import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._
 import java.util.Random
 
-import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.TextStream.Dict.Lexicon
 import YAVL.Utils.ScalaDebugUtils
 
 import scala.runtime.RichInt

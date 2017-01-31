@@ -1,6 +1,6 @@
 import java.util.Random
 
-import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.TextStream.Dict.Lexicon
 import BIDMat.{CMat, CSMat, DMat, Dict, FMat, GIMat, GMat, GSMat, HMat, IDict, IMat, Mat, SBMat, SDMat, SMat}
 import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._

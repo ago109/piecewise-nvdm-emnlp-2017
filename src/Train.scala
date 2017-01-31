@@ -5,12 +5,12 @@ import java.util.ArrayList
 import java.util.Random
 
 import BIDMat.SciFunctions._
-import YADLL.FunctionGraph.Graph.OGraph
-import YADLL.FunctionGraph.Operators.SpecOps.{KL_Gauss, KL_Piece}
-import YADLL.FunctionGraph.Optimizers.{SGOpt, _}
-import YADLL.FunctionGraph.Theta
+import YADLL.OperatorGraph.Graph.OGraph
+import YADLL.OperatorGraph.Operators.SpecOps.{KL_Gauss, KL_Piece}
+import YADLL.OperatorGraph.Optimizers.{SGOpt, _}
+import YADLL.OperatorGraph.Theta
 import YADLL.Utils.MathUtils
-import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.TextStream.Dict.Lexicon
 import YAVL.Utils.{Logger, ScalaDebugUtils}
 
 import scala.runtime.{RichInt, RichInt$}
@@ -19,7 +19,7 @@ import BIDMat.{CMat, CSMat, DMat, Dict, FMat, GIMat, GMat, GSMat, HMat, IDict, I
 import BIDMat.MatFunctions._
 import BIDMat.SciFunctions._
 //Imports from the library YADLL v0.7
-import YADLL.FunctionGraph.BuildArch
+import YADLL.OperatorGraph.BuildArch
 import YADLL.Utils.ConfigFile
 /**
   * Created by ago109 on 10/27/16.
@@ -569,7 +569,7 @@ object Train {
     val rng = new Random(seed)
     val dataFname = configFile.getArg("dataFname")
     val dictFname = configFile.getArg("dictFname")
-    val dict = new Lexicon(dictFname)
+    val dict = new Lexicon(dictFname, true) //<-- use legacy lexicon for this code-base
     val binarizeVectors = configFile.getArg("binarizeVectors").toBoolean
     println(" > Vocab |V| = "+dict.getLexiconSize())
     val trainModel = configFile.getArg("trainModel").toBoolean
@@ -586,7 +586,10 @@ object Train {
       dir.mkdir() //<-- build dir on disk if it doesn't already exist...
       graphFname = graphFname.substring(graphFname.indexOf("/")+1)
     }else{
-      outputDir = "tmp_model_out/"
+      if(configFile.isArgDefined("outputDir"))
+        outputDir = configFile.getArg("outputDir")
+      else
+        outputDir = "tmp_model_out/"
       val dir = new File(outputDir)
       dir.delete() //<-- delete dir if it exists
       dir.mkdir() //<-- build dir on disk if it doesn't already exist...
@@ -792,7 +795,7 @@ object Train {
            * Update model given gradients
            * ####################################################
            */
-          opt.update(theta = graph.theta, nabla = grad, miniBatchSize = numSamps)
+          opt.update(theta = graph.theta, nabla = grad) //, miniBatchSize = numSamps)
 
           if(gamma_iter_bound > 0){
             val gamma = Math.min(1f,graph.theta.getParam("gamma").dv.toFloat + gamma_delta)

@@ -2,7 +2,7 @@ import java.util
 import java.util.ArrayList
 
 import YADLL.Utils.MiscUtils
-import YAVL.Data.Text.Lexicon.Lexicon
+import YAVL.TextStream.Dict.Lexicon
 import YAVL.Utils.Logger
 
 import scala.collection.immutable.List
