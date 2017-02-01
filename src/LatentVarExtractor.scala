@@ -31,9 +31,15 @@ import YADLL.Utils.ConfigFile
   * for specific words in a given vocabulary.  Takes in a trained model and a lexicon (that was used in building
   * the document model) and extracts relevant NVDM's latent variables to disk...
   *
+  * "About the visualization. Yes encoding each word into its latent representation and then looking at
+  * neighbouring words would be one way to do it. It would be especially useful to illustrate multi-modal
+  * aspects. For example, a verb like "shot" might appear both in political articles ( "soldiers shot at ...")
+  * and in sports ("he shot three goals').An alternative to looking at nearest neighbours might be to
+  * visualize these encodings using t-sne."
+  *
   * Created by ago109 on 1/30/17.
   */
-class LatentVarAnalysis {
+object LatentVarExtractor {
   Mat.checkMKL //<-- needed in order to check for BIDMat on cpu or gpu...
 
   def main(args : Array[String]): Unit ={
@@ -45,7 +51,7 @@ class LatentVarAnalysis {
     val configFile = new ConfigFile(args(0)) //grab configuration from local disk
     val seed = configFile.getArg("seed").toInt
     setseed(seed) //controls determinism of overall simulation
-    val rng = new Random(seed)
+    //val rng = new Random(seed)
     val dictFname = configFile.getArg("dictFname")
     val lex = new Lexicon(dictFname,true) //<-- uses deprecated constructor for now
     val graphFname = configFile.getArg("graphFname")
@@ -62,7 +68,7 @@ class LatentVarAnalysis {
     graph.theta = theta
     graph.hardClear() //<-- clear out any gunked up data from previous sessions
 
-    var n_lat = graph.getOp("z").dim
+    val n_lat = graph.getOp("z").dim //final dim of latent variable (may be hybrid)
     var n_lat_p = -1 // # piecewise variables
     var n_lat_g = -1 // # gaussian variables
     if(graph.getOp("z-gaussian") != null){
@@ -73,20 +79,24 @@ class LatentVarAnalysis {
     }
 
     //Now, loop through each word in lexicon, and calculate latent variable
+    var gaussianMat : Mat = null
+    var pieceMat : Mat = null
+    var latentMat : Mat = null
     val lex_size = lex.getLexiconSize()
     var word_idx = 0
     while(word_idx < lex_size){
-      val word = lex.getSymbol(word_idx)
+      val word = lex.getSymbol(word_idx) //<-- get actual word/symbol from lexicon given index
+      print("\r Getting latents for "+word)
       val x_w = sparse(word_idx,0,1f,lex_size,1) //<-- create one-hot encoding for word
       //Generate some samples for latent variable(s)
       var eps_gauss: Mat = null
       var eps_piece: Mat = null
       val KL_correction:Mat = ones(1,x_w.ncols) *@ x_w.ncols
       if(n_lat_g > 0){
-        eps_gauss = ones(n_lat,x_w.ncols) *@ normrnd(0f, 1f, n_lat_g, 1)
+        eps_gauss = ones(n_lat_g,x_w.ncols) *@ normrnd(0f, 1f, n_lat_g, 1)
       }
       if(n_lat_p > 0){
-        eps_piece = ones(n_lat,x_w.ncols) *@ rand(n_lat_p, 1)
+        eps_piece = ones(n_lat_p,x_w.ncols) *@ rand(n_lat_p, 1)
       }
       //val KL_gauss_op = graph.getOp("KL-gauss")
       //val KL_piece_op = graph.getOp("KL-piece")
@@ -100,21 +110,44 @@ class LatentVarAnalysis {
       //Extract relevant latent variables from NVDM-model
       if(n_lat_g > 0){
         val gaussVar = graph.getStat("z-gaussian")
-        //TODO: write word and latent variable to gaussian-variable file
+        // write word and latent variable to gaussian-variable file
+        if(null != gaussianMat){
+          gaussianMat = gaussianMat \ gaussVar
+        }else{
+          gaussianMat = gaussVar
+        }
       }
       if(n_lat_p > 0){
-        val gaussVar = graph.getStat("z-piece")
-        //TODO: write word and latent variable to piecewise-variable file
+        val pieceVar = graph.getStat("z-piece")
+        // write word and latent variable to piecewise-variable file
+        if(null != pieceMat){
+          pieceMat = pieceMat \ pieceVar
+        }else{
+          pieceMat = pieceVar
+        }
       }
       val latVar = graph.getStat("z")
-      //TODO: write hybrid latent variable and word to hybrid-variable file...
+      // write hybrid latent variable and word to hybrid-variable file...
+      if(null != latentMat){
+        latentMat = latentMat \ latVar
+      }else{
+        latentMat = latVar
+      }
       word_idx += 1
     }
+    println()
 
-
-
-
-
+    //Write composed column-major matrices to local disk
+    println(" > Saving:  "+latentVarFname)
+    HMat.saveMat(latentVarFname,latentMat)
+    if(null != gaussianMat){
+      println(" > Saving:  "+gaussianVarFname)
+      HMat.saveMat(gaussianVarFname,gaussianMat)
+    }
+    if(null != pieceMat){
+      println(" > Saving:  "+pieceVarFname)
+      HMat.saveMat(pieceVarFname,pieceMat)
+    }
   }
 
 
