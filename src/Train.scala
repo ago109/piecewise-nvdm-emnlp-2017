@@ -624,6 +624,9 @@ object Train {
         println(" > Applying lr-schedule per epoch...")
       }
       val gamma_iter_bound = configFile.getArg("gamma_iter_bound").toInt
+      var gamma_bound = configFile.getArg("gamma_bound").toFloat
+      if(gamma_bound > 1f || gamma_bound < 0f)
+        gamma_bound = 1f
       //Build validation set to conduct evaluation
       var validSampler = new DocSampler(validFname,dict)
       validSampler.loadDocsFromLibSVMToCache()
@@ -708,17 +711,20 @@ object Train {
 
       //Actualy train model
       var totalNumIter = 0
-      val gamma_delta = (1f - archBuilder.vae_gamma)/(gamma_iter_bound*1f)
+      val gamma_delta = (gamma_bound - archBuilder.vae_gamma)/(gamma_iter_bound*1f)
       var impatience = 0
       var epoch = 0
       var worst_case_update_time = 0f
       //var worst_case_prep_time = 0f
       //var worst_case_grad_time = 0f
       var numIter = 0
+      opt.setPolyakAverage() // we will maintain a Polyak average over the entire course of training...
       while(epoch < numEpochs) {
+        /*
         if(epoch == (numEpochs-1)){
           opt.setPolyakAverage()
         }
+        */
         var bestEpochNLL:Mat = 10000f
         var numSampsSeen = 0 // # samples seen w/in an epoch
         var mark = 1
@@ -798,8 +804,9 @@ object Train {
           opt.update(theta = graph.theta, nabla = grad) //, miniBatchSize = numSamps)
 
           if(gamma_iter_bound > 0){
-            val gamma = Math.min(1f,graph.theta.getParam("gamma").dv.toFloat + gamma_delta)
+            val gamma = Math.min(gamma_bound,graph.theta.getParam("gamma").dv.toFloat + gamma_delta)
             graph.theta.setParam("gamma",gamma)
+            println("Gamma = "+graph.theta.getParam("gamma"))
           }
 
           var t1 = System.nanoTime()
@@ -848,6 +855,8 @@ object Train {
             if(currNLL.dv.toFloat <= bestEpochNLL.dv.toFloat){
               graph.theta.saveTheta(outputDir+"check_epoch_"+epoch) //save a running check-point of model
               bestEpochNLL = currNLL //save best within-epoch NLL
+              val polyak_avg = opt.estimatePolyakAverage() //save best Polyak average so far (at min validation)
+              polyak_avg.saveTheta(outputDir+"epoch_"+epoch + "_polyak_avg")
             }
             mark += 1
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1)
