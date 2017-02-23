@@ -143,7 +143,6 @@ object Train {
       graph.toggleFreezeOp("h0",false)
     }
     graph.hardClear()
-
     return (log_probs,doc_likelihood,KL_gauss_s,KL_piece_s)
 
   }
@@ -503,7 +502,7 @@ object Train {
 
   /**
     * Generates a triplet w/ relevant statistics/samples needed for a given mini-batch of
-    * documnet input-output pair samples.
+    * document input-output pair samples.
     *
     * @param docID
     * @param n_lat
@@ -852,11 +851,11 @@ object Train {
                 } //else ignore annealing schedule, conditions are invalid
               }
             }
+            graph.theta.saveTheta(outputDir+"check_epoch_"+epoch) //save a running check-point of model
             if(currNLL.dv.toFloat <= bestEpochNLL.dv.toFloat){
-              graph.theta.saveTheta(outputDir+"check_epoch_"+epoch) //save a running check-point of model
               bestEpochNLL = currNLL //save best within-epoch NLL
               val polyak_avg = opt.estimatePolyakAverage() //save best Polyak average so far (at min validation)
-              polyak_avg.saveTheta(outputDir+"epoch_"+epoch + "_polyak_avg")
+              polyak_avg.saveTheta(outputDir+"best_epoch_"+epoch + "_polyak_avg")
             }
             mark += 1
             println("\n "+epoch+" >> NLL = "+currNLL + " PPL = " + currPPL + " KL.G = "+stats(1)
