@@ -30,6 +30,7 @@ import YADLL.Utils.ConfigFile
   * Created by ago109 on 2/24/17.
   */
 object ExtractParam {
+  Mat.checkMKL //<-- needed in order to check for BIDMat on cpu or gpu...
 
   def main(args : Array[String]): Unit ={
     if(args.length != 4){
@@ -43,11 +44,11 @@ object ExtractParam {
     val builder = new BuildArch()
     val theta = builder.loadTheta(thetaFname)
     println(" > Extracting "+paramName + " from: "+thetaFname)
-    val param = theta.getParam(paramName)
+    var param = theta.getParam(paramName)
     println(" > Saving "+paramName + " to: "+outFname)
     if(transpose)
-      HMat.saveMat(outFname,param.t)
-    else
-      HMat.saveMat(outFname,param)
+      param = param.t
+    println(paramName + "-out.shape = "+size(param))
+    HMat.saveMat(outFname,param)
   }
 }
