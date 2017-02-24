@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="yavl-0v2">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/../delta-rnn-2016/yavl-0v2.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

@@ -68,7 +68,7 @@ object EmbeddingAnalyzer {
       val A = decoder * decoder.t
       val stat = seig(A,true)
       val eigens = stat._2.asInstanceOf[Mat] //get eigen-vectors
-      decoder =eigens * decoder //rotate decoder
+      decoder = eigens * decoder //rotate decoder
     }
     //Transpose decoder to column-major for efficient slicing
     decoder = decoder.t //terms along cols now, latents along rows

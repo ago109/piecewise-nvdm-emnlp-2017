@@ -174,7 +174,6 @@ object LatentVarExtractor {
       } else {
         latentMat = mc_hybrid
       }
-      System.exit(0)
       word_idx += 1
     }
     println()

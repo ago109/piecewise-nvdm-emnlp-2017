@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="yadll-1v7">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/../delta-rnn-2016/yadll-1v7.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
