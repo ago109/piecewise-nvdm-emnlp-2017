@@ -30,11 +30,12 @@ object LatentVarProjector {
       println(" > Loaded from Theta, matrix of size = "+size(samps))
       //println(theta.printDims())
     }else{
-      samps = HMat.loadFMat(args(2)).t //<-- get column-major matrix of latent var vectors
+      samps = HMat.loadFMat(args(2)) //<-- get column-major matrix of latent var vectors
       println(" > Loaded matrix of size = "+size(samps))
     }
 
     //Perform rotation after finding eigen-vectors of the data
+    //val orig = samps.copy
     val A = samps * samps.t
     val stat = seig(A,true)
     val eigens = stat._2.asInstanceOf[Mat] //get eigen-vectors
@@ -46,5 +47,11 @@ object LatentVarProjector {
     println(" > Writing to disk: "+args(1))
     HMat.saveFMatTxt(args(1),FMat(samps.t))
     println(" > Out.shape = "+size(samps.t))
+
+    /* PCA checks for correctness
+    println((eigens * eigens.t))
+    println((eigens * eigens.t) * orig)
+    println(orig)
+    */
   }
 }
