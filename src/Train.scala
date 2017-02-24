@@ -31,7 +31,7 @@ object Train {
   def buildFullSample(sampler : DocSampler):ArrayList[(Mat,Mat)]={
     val chunks = new ArrayList[(Mat,Mat)]()
     while(sampler.isDepleted() == false){
-      val stat = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)
+      val stat = sampler.drawFullDocBatch() //drawMiniBatch(blockSize, rng)    today
       val batch = (stat._1.asInstanceOf[Mat],stat._2.asInstanceOf[Mat])
       chunks.add(batch)
     }
