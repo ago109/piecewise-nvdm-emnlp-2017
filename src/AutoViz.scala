@@ -40,7 +40,7 @@ object AutoViz {
   def main(args : Array[String]): Unit = {
     if (args.length < 8) {
       System.err.println("usage: [/path/to/col-data.mat] [/path/to/outfname] [hid#-hid#...]" +
-        " [hid-activation] [max_iter] [lr] [initType] [converge_eps]")
+        " [hid-activation] [max_iter] [lr] [initType] [converge_eps] [lookahead] ?[topActivation]")
       return
     }
     val dat = HMat.loadFMat(args(0)) //<-- get column-major matrix of latent var vectors
@@ -51,6 +51,11 @@ object AutoViz {
     val lr = args(5).toFloat
     val init = args(6)
     val converge_eps = args(7).toFloat
+    val patience = args(8).toInt
+    var topActivation = activation
+    if(args.length >= 10){
+      topActivation = args(9)
+    }
     val n_in = dat.nrows
     val n_out = dat.nrows
     val tok = arch.split("-")
@@ -65,10 +70,11 @@ object AutoViz {
     var n_in_i = n_in
     var n_out_i = n_out
     var dat_project : Mat = dat
+    println("Data.shape = "+size(dat_project))
     while(i < hids.length){
       val n_hid = hids(i)
       if(i > 0){
-        n_in_i = n_hid(i-1)
+        n_in_i = hids(i-1)
         n_out_i = n_in_i
       }
       val builder = new BuildArch()
@@ -77,20 +83,24 @@ object AutoViz {
       builder.n_out = n_out_i
       builder.n_hid = n_hid
       builder.hidActivation = activation
+      if(i == hids.length-1)
+        builder.hidActivation = topActivation
       builder.outputActivation = "identity"
       val opt = new ADAM(lr = lr, opType = "descent")
       val aa = builder.buildAA()
       //Now train currently AA
       var iter = 0
       var notConverged = true
+      var impatience = 0
+      var L_prev = 1000000f
       while(iter < numIter && notConverged){
         //Gen permutation of sample indices
         val ind = randperm(dat_project.ncols)
-        var L_prev = 1000000f
         var s = 0
         while(s < ind.ncols){
           val samp = dat_project(?,ind(0,s).dv.toInt)
-          aa.clamp(("x0",samp),("y0",samp),("N",samp.ncols))
+          aa.clamp(("x0",samp),("y0",samp))
+          aa.clamp(("N",samp.ncols))
           aa.eval()
           val grad = aa.calc_grad()
           //Update model parameters using gradient
@@ -102,22 +112,28 @@ object AutoViz {
         aa.clamp(("x0",dat_project),("y0",dat_project),("N",dat_project.ncols))
         aa.eval()
         val L_curr = aa.getStat("L").dv.toFloat
-        println(iter + " Lyr = " + i + " Loss = " + L_curr)
+        print("\r "+iter + " Lyr = " + i + " Loss = " + L_curr)
+        if(iter % 20 == 0)
+          println()
         aa.hardClear()
         if((L_prev - L_curr) <= converge_eps){
+          impatience += 1
+        }else
+          L_prev = L_curr
+        if(impatience >= patience)
           notConverged = false
-        }
-        L_prev = L_curr
         iter += 1
       }
+      println()
       //Project data up to next level
       aa.clamp(("x0",dat_project),("y0",dat_project),("N",dat_project.ncols))
       aa.eval()
       dat_project = aa.getStat("h0")
+      println("Projected-Data.shape = "+size(dat_project))
       i += 1
     }
-    println(" > Reached top of projection...saving "+hids(hids.length)+"-dim embeddings:")
-    println("   "+outfname)
+    println(" > Reached top of projection...saving "+hids(hids.length-1)+"-dim embeddings...")
+    println("   Saving to: "+outfname)
     HMat.saveFMatTxt(outfname,FMat(dat_project),delim = "\t")
 
 
