@@ -97,6 +97,7 @@ object AutoViz {
       var notConverged = true
       var impatience = 0
       var L_prev = 1000000f
+      var best_projection : Mat = null
       while(iter < numIter && notConverged){
         //Gen permutation of sample indices
         val ind = randperm(dat_project.ncols)
@@ -126,22 +127,29 @@ object AutoViz {
         print("\r "+iter + " Lyr = " + i + " Loss = " + L_curr)
         if(iter % 20 == 0)
           println()
-        aa.hardClear()
         if(patience > 0 && converge_eps >= 0.0f) {
-          if ((L_prev - L_curr) <= converge_eps) {
-            impatience += 1
-          } else
+          if(L_curr <= L_prev){
+            best_projection = aa.getStat("h0")
             L_prev = L_curr
+            impatience = 0
+          }else{
+            impatience += 1
+          }
           if (impatience >= patience)
             notConverged = false
-        }
+        }else
+          best_projection = aa.getStat("h0")
         iter += 1
+        aa.hardClear()
       }
       println()
       //Project data up to next level
+      dat_project = best_projection
+      /*
       aa.clamp(("x0",dat_project),("y0",dat_project),("N",dat_project.ncols))
       aa.eval()
       dat_project = aa.getStat("h0")
+      */
       println("Projected-Data.shape = "+size(dat_project))
       i += 1
     }
