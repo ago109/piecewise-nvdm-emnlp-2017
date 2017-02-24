@@ -40,7 +40,7 @@ object AutoViz {
   def main(args : Array[String]): Unit = {
     if (args.length < 8) {
       System.err.println("usage: [/path/to/col-data.mat] [/path/to/outfname] [hid#-hid#...]" +
-        " [hid-activation] [max_iter] [lr] [initType] [converge_eps] [lookahead] ?[topActivation]")
+        " [hid-activation] [max_iter] [lr] [initType] [converge_eps] [lookahead] ?[topActivation] ?[mb_size]")
       return
     }
     val dat = HMat.loadFMat(args(0)) //<-- get column-major matrix of latent var vectors
@@ -55,6 +55,10 @@ object AutoViz {
     var topActivation = activation
     if(args.length >= 10){
       topActivation = args(9)
+    }
+    var mb_size = 1
+    if(args.length >= 11){
+      mb_size = args(10).toInt
     }
     val n_in = dat.nrows
     val n_out = dat.nrows
@@ -97,8 +101,11 @@ object AutoViz {
         //Gen permutation of sample indices
         val ind = randperm(dat_project.ncols)
         var s = 0
+        var ed = s + mb_size
         while(s < ind.ncols){
-          val samp = dat_project(?,ind(0,s).dv.toInt)
+          //println(s +" <-> "+ed)
+          val mb_indx = ind(?,new RichInt(s) until ed)
+          val samp = dat_project(?,mb_indx)
           aa.clamp(("x0",samp),("y0",samp))
           aa.clamp(("N",samp.ncols))
           aa.eval()
@@ -106,7 +113,11 @@ object AutoViz {
           //Update model parameters using gradient
           opt.update(theta = aa.theta, nabla = grad)
           aa.hardClear()
-          s += 1
+          //s += 1
+          s = ed
+          ed = s + mb_size
+          if(ed >= ind.ncols)
+            ed = ind.ncols
         }
         //Evaluate current layer loss
         aa.clamp(("x0",dat_project),("y0",dat_project),("N",dat_project.ncols))
@@ -116,12 +127,14 @@ object AutoViz {
         if(iter % 20 == 0)
           println()
         aa.hardClear()
-        if((L_prev - L_curr) <= converge_eps){
-          impatience += 1
-        }else
-          L_prev = L_curr
-        if(impatience >= patience)
-          notConverged = false
+        if(patience > 0 && converge_eps >= 0.0f) {
+          if ((L_prev - L_curr) <= converge_eps) {
+            impatience += 1
+          } else
+            L_prev = L_curr
+          if (impatience >= patience)
+            notConverged = false
+        }
         iter += 1
       }
       println()
@@ -134,7 +147,7 @@ object AutoViz {
     }
     println(" > Reached top of projection...saving "+hids(hids.length-1)+"-dim embeddings...")
     println("   Saving to: "+outfname)
-    HMat.saveFMatTxt(outfname,FMat(dat_project),delim = "\t")
+    HMat.saveFMatTxt(outfname,FMat(dat_project.t),delim = "\t")
 
 
   }
