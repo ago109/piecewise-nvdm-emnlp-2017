@@ -428,6 +428,10 @@ object Train {
                 numModelSamples : Int = 10, numSGDInfSteps : Int = 1, lr_gauss : Float = 0.1f, lr_piece: Float = 0.1f,
                 gauss_norm : Float = 1f, piece_norm : Float = 1f,
                 patience : Int = 2, lex : Lexicon = null, undoLogTF : Boolean = false, debug : Boolean = false):Array[Mat] ={
+    //We ensure that no floppy bounds are estimated by fixing \gamma to 1 during evaluation
+    val gamma = graph.theta.getParam("gamma")
+    graph.theta.setParam("gamma",1f)
+
     //Temporarily set any KL max-tricks to 0 to make bound tight...
     val KL_gauss = graph.getOp("KL-gauss")
     var gauss_trick = 0f
@@ -496,7 +500,9 @@ object Train {
     if(KL_piece != null){
       KL_piece.asInstanceOf[KL_Piece].maxTrickConstant = piece_trick
     }
-    //System.exit(0)
+
+    //We allow for floppy bounds if this was set for training (again)
+    graph.theta.setParam("gamma",gamma)
     return stats
   }
 

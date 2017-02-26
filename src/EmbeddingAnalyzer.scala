@@ -42,7 +42,7 @@ object EmbeddingAnalyzer {
     val archBuilder = new BuildArch()
     val theta = archBuilder.loadTheta(args(0))
     val decoderName = args(1)
-    val dict = new Lexicon(args(2))
+    val dict = new Lexicon(args(2),true)
     val k = args(3).toInt
     val performRot = args(4).toBoolean
     val querySymbol = args(5)

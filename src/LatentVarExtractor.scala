@@ -94,85 +94,49 @@ object LatentVarExtractor {
       var eps_piece: Mat = null
       val KL_correction:Mat = ones(1,x_w.ncols) *@ x_w.ncols
       var s = 0
-      //Monte Carlo variables (expectations of individual latents)
-      var mc_gauss : Mat = null
-      var mc_piece : Mat = null
-      var mc_hybrid : Mat = null
-      while(s < numSamples) {
-        if (n_lat_g > 0) {
-          eps_gauss = ones(n_lat_g, x_w.ncols) *@ normrnd(0f, 1f, n_lat_g, 1)
-        }
-        if (n_lat_p > 0) {
-          eps_piece = ones(n_lat_p, x_w.ncols) *@ rand(n_lat_p, 1)
-        }
-        //val KL_gauss_op = graph.getOp("KL-gauss")
-        //val KL_piece_op = graph.getOp("KL-piece")
-        graph.clamp(("x-in", x_w))
-        graph.clamp(("x-targ", x_w)) //<-- we don't care about the target this time...
-        graph.clamp(("eps-gauss", eps_gauss))
-        graph.clamp(("eps-piece", eps_piece))
-        graph.clamp(("KL-correction", KL_correction))
-        graph.clamp(("N", x_w.ncols)) //<-- we don't care about the loss this time...
-        graph.eval() //do inference to gather statistics
-        //Extract relevant latent variables from NVDM-model
-        if (n_lat_g > 0) {
-          val gaussVar = graph.getStat("z-gaussian")
-          //println("Gauss:\n"+gaussVar.t)
-          // write word and latent variable to gaussian-variable file
-          if (null != mc_gauss) {
-            mc_gauss = mc_gauss + gaussVar
-          } else {
-            mc_gauss = gaussVar
-          }
-        }
-        if (n_lat_p > 0) {
-          val pieceVar = graph.getStat("z-piece")
-          //println("Piece:\n"+pieceVar.t)
-          // write word and latent variable to piecewise-variable file
-          if (null != mc_piece) {
-            mc_piece = mc_piece + pieceVar
-          } else {
-            mc_piece = pieceVar
-          }
-        }
-        val latVar = graph.getStat("z")
-        //println("Hybrid:\n"+latVar.t)
-        // write hybrid latent variable and word to hybrid-variable file...
-        if (null != mc_hybrid) {
-          mc_hybrid = mc_hybrid + latVar
-        } else {
-          mc_hybrid = latVar
-        }
-        s += 1
+      if (n_lat_g > 0) {
+        eps_gauss = ones(n_lat_g, x_w.ncols) *@ normrnd(0f, 1f, n_lat_g, 1)
       }
+      if (n_lat_p > 0) {
+        eps_piece = ones(n_lat_p, x_w.ncols) *@ rand(n_lat_p, 1)
+      }
+      //val KL_gauss_op = graph.getOp("KL-gauss")
+      //val KL_piece_op = graph.getOp("KL-piece")
+      graph.clamp(("x-in", x_w))
+      graph.clamp(("x-targ", x_w)) //<-- we don't care about the target this time...
+      graph.clamp(("eps-gauss", eps_gauss))
+      graph.clamp(("eps-piece", eps_piece))
+      graph.clamp(("KL-correction", KL_correction))
+      graph.clamp(("N", x_w.ncols)) //<-- we don't care about the loss this time...
+      graph.eval() //do inference to gather statistics
       //Extract relevant latent variables from NVDM-model
       if (n_lat_g > 0) {
-        mc_gauss = mc_gauss / (1f * numSamples)
-        //println("Gauss.mean:\n"+mc_gauss.t)
+        val gaussVar = graph.getStat("z-gaussian")
+        //println("Gauss:\n"+gaussVar.t)
         // write word and latent variable to gaussian-variable file
         if (null != gaussianMat) {
-          gaussianMat = gaussianMat \ mc_gauss
+          gaussianMat = gaussianMat \ gaussVar
         } else {
-          gaussianMat = mc_gauss
+          gaussianMat = gaussVar
         }
       }
       if (n_lat_p > 0) {
-        mc_piece = mc_piece / (1f * numSamples)
-        //println("Piece.mean:\n"+mc_piece.t)
+        val pieceVar = graph.getStat("z-piece")
+        //println("Piece:\n"+pieceVar.t)
         // write word and latent variable to piecewise-variable file
         if (null != pieceMat) {
-          pieceMat = pieceMat \ mc_piece
+          pieceMat = pieceMat \ pieceVar
         } else {
-          pieceMat = mc_piece
+          pieceMat = pieceVar
         }
       }
-      mc_hybrid = mc_hybrid / (1f * numSamples)
-      //println("Hybrid.mean:\n"+mc_hybrid.t)
+      val latVar = graph.getStat("z")
+      //println("Hybrid:\n"+latVar.t)
       // write hybrid latent variable and word to hybrid-variable file...
       if (null != latentMat) {
-        latentMat = latentMat \ mc_hybrid
+        latentMat = latentMat \ latVar
       } else {
-        latentMat = mc_hybrid
+        latentMat = latVar
       }
       word_idx += 1
     }
@@ -180,13 +144,16 @@ object LatentVarExtractor {
 
     //Write composed column-major matrices to local disk
     println(" > Saving:  "+latentVarFname)
+    println(" > Shape : "+size(latentMat))
     HMat.saveMat(latentVarFname,latentMat)
     if(null != gaussianMat){
       println(" > Saving:  "+gaussianVarFname)
+      println(" > Shape : "+size(gaussianMat))
       HMat.saveMat(gaussianVarFname,gaussianMat)
     }
     if(null != pieceMat){
       println(" > Saving:  "+pieceVarFname)
+      println(" > Shape : "+size(pieceMat))
       HMat.saveMat(pieceVarFname,pieceMat)
     }
   }
