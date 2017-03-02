@@ -430,7 +430,7 @@ object Train {
                 patience : Int = 2, lex : Lexicon = null, undoLogTF : Boolean = false, debug : Boolean = false):Array[Mat] ={
     //We ensure that no floppy bounds are estimated by fixing \gamma to 1 during evaluation
     val gamma = graph.theta.getParam("gamma")
-    graph.theta.setParam("gamma",1f)
+    graph.theta.setParam("gamma",1f) // this also means we calculate the proper VLB :-)
 
     //Temporarily set any KL max-tricks to 0 to make bound tight...
     val KL_gauss = graph.getOp("KL-gauss")
