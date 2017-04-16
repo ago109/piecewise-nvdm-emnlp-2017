@@ -42,7 +42,7 @@ object DocVectBuilder {
     val patience = configFile.getArg("patience").toInt
 
     //Prop up sampler/lexicon
-    val dict = new Lexicon(dictFname)
+    val dict = new Lexicon(dictFname,true) //<-- uses deprecated constructor for now
     val sampler = new DocSampler(dataFname,dict)
     sampler.loadDocsFromLibSVMToCache()
 
@@ -54,6 +54,17 @@ object DocVectBuilder {
     val graph = archBuilder.loadOGraph(graphFname)
     graph.theta = theta
     graph.hardClear() //<-- clear out any gunked up data from previous sessions
+
+    println(" ++++ Model: " + graph.modelTypeName + " Properties ++++ ")
+    println("  # Inputs = "+graph.getOp("x-in").dim)
+    println("  # Lyr 1 Hiddens = "+graph.getOp("h0").dim)
+    if(graph.getOp("h1") != null){
+      println("  # Lyr 2 Hiddens = "+graph.getOp("h1").dim)
+    }
+    println("  # Latents = "+graph.getOp("z").dim)
+    println("  # Outputs = "+graph.getOp("x-out").dim)
+    println(" ++++++++++++++++++++++++++ ")
+    println(size(graph.theta.getParam("W0-enc")))
 
     //we need to know # of latent variables in model
     var n_lat = graph.getOp("z").dim
